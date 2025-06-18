@@ -61,7 +61,17 @@ sudo eopkg install -y python3 python3-pip git
 
 ## Commands
 
-#### transcription
+#### add subtitles
 ```bash
-textStudy -transcription --lang (optional, default English)
+textStudy -addSub --lang (optional in iso 639-1 language code, default video language)
+```
+
+#### summarization
+```bash
+textStudy -summary --ratio     #How much smaller than orginal 
+```
+
+#### re-explain
+```bash
+textStudy
 ```

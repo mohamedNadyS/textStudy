@@ -38,6 +38,9 @@ setup(
         "rich",
         "ffmpeg-python",
         "nltk.tokenize",
+        "semantic_text_splitter",
+        "tokenizers",
+        "pipeline",
     ],
     entry_points={
         "console_scripts": [

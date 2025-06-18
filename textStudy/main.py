@@ -1,5 +1,4 @@
 import moviepy as mv
-import speech_recognition as sr
 import typer
 import whisper
 import os
@@ -12,13 +11,19 @@ from datetime import datetime, timedelta
 import uuid
 from rich.progress import track
 import nltk
+import nltk.tokenize
+import semantic_text_splitter
+from tokenizers import Tokenizer
+import pipeline
+audioready = False
+textready = False
 ffmpeg_path = get_ffmpeg_exe()
 ffmpeg_dir = os.path.dirname(ffmpeg_path)
 os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
 
 path = ""
 Vdir = ""
-
+Vname = ""
 class progressHook:
     def __init__(self , progress , task_id):
         self.progress = progress
@@ -65,13 +70,8 @@ def downloadVideo(Vlink):
         if file.is_file() and file.suffix.lower() in ('.mp4' ,'.mkv' , '.avi' ,'.mov'):
             path = file
             break
-    return Vdir, path.name, path
-'''    return {
-        'Fdir' : str(Vdir),
-        'Fname' : path.name,
-        'Fpath' : str(path)
-    }
-'''
+    Vname = os.path.basename(path)
+    return Vdir, Vname , path
 
 
 def video2audio(Vpath , Apath):
@@ -83,32 +83,108 @@ def video2audio(Vpath , Apath):
         ac = 1,
         ar = '16000'
     ).overwrite_output().run(quit=True)
+    audioready = True
     return {Apath : str}
 
-def audio2text(audioPath):
+
+def audio2text(audioPath, language ="auto"):
     model = whisper.load_model('base')
-    transcribtion = model.transcribe(audioPath)
+    if language == "auto":
+        transcribtion = model.transcribe(audioPath)
+    else:
+        transcribtion = model.transcribe(audioPath, language = language, task= "translate")
+    textready = True
     return transcribtion
 
 
 def summary(transcribtion: str , ratio : int):
-    modelName = "fa"
-    pass
+    cleanText = transcribtion
+    maxTokens = 1024
+    summaries = []
+    #modelName = "philschmid/bart-large-cnn-samsum"
+    modelName = "sshleifer/distilbart-cnn-12-6"
+    sumTokenizer = transformers.BartTokenizer.from_pretrained(modelName)
+    model = transformers.BartForConditionalGeneration.from_pretrained(modelName)
+    splitTokenizer = Tokenizer.from_pretrained("bert-base-uncased")
+    splitter = semantic_text_splitter.TextSplitter.from_huggingface_tokenizer(splitTokenizer, maxTokens)
+    chunks = splitter.chunks(cleanText)
+    cleaner = pipeline("text2text-generation" , model = "flan-t5-base")
+
+    for chunk in chunks:
+        cleanPrompt = f"Clean this transcript to be good for reading not dialoge or script {chunk}"
+        cleaned = cleaner(cleanPrompt , max_length = 512 , do_sample = False)[0]['generated text']
+        cleanText = []
+        cleanText.append(cleaned)
+
+    for paragraph in cleanText:
+        wordsNumber = len(paragraph.split())
+        maximumOut = int(wordsNumber/ratio + (((1/ratio)*100)/15))
+        minimumOut = int(wordsNumber/ratio)
+        inputs = sumTokenizer.encode("summarize :" + paragraph, return_tensors = "pt", max_length =1024 , trancution = True)
+        summaryIdes = model.generate(inputs , max_length = maximumOut , min_length = minimumOut, length_penality = 1 , num_beams = 4 , early_stopping = True)
+        Fsummary = sumTokenizer.decode(summaryIdes[0] , skip_special_tokens = True)
+        summaries.append(Fsummary)
+    FFsummary = " ".join(summaries)
+    typer.echo("your summary:\n" + FFsummary)
+    return FFsummary
+
+         
+
+def paraphrase(transcribtion:str):
+    maxTokens = 1024
+    tokenizer = transformers.AutoTokenizer.from_pretrained("flan-t5-base")
+    model = transformers.AutoModelForSeq2SeqLM.from_pretrained("flan-t5-base")
+    splitTokenizer = Tokenizer.from_pretrained("bert-base-uncased")
+    splitter = semantic_text_splitter.TextSplitter.from_huggingface_tokenizer(splitTokenizer, maxTokens)
+    chunks = splitter.chunks(transcribtion)
+    Fchunks = []
+
+    for chunk in chunks:
+        prompt = f"""
+You are an educational content assistant.
+
+Rewrite the following video transcript chunk to create an engaging and stuctured explaination file.
+
+Adapt your writing style based on the type of video content
+- For Science or technical topics: use clear headings, bullet points, and explainations.
+- For grammer or language: explain rules, give examples, and highlight structure.
+- For math or physics problem solving: present the explaination step by step with labled equations and reasoning.
+- For computer Science: explain the base and topics, with code blocks
+
+Format the result like educational notes or articles with a clear titles,structured sections, and coherent flow.
+
+transcribt:
+\"\"\"
+{chunk}
+\"\"\"
+"""
+        inputs = tokenizer(prompt, return_tensors = "pt" , truncation = True)
+        output = model.generate(**inputs,max_new_tokens = 1024)
+        decoded = tokenizer.decode(output[0],skip_special_tokens = True)
+        Fchunks.append(decoded.strip())
+    Fparaphresed = "\n\n".join(Fchunks)
+    return Fparaphresed
 
 
 
-
-def transcription(audio, language):
+def transcription(audio, language:str = "auto"):
     model = whisper.load_model('base')
-    transcribtion = model.transcribe(audio)
+    if language == "auto":
+        transcribtion = model.transcribe(audio)
+    else:
+        transcribtion = model.transcribe(audio, language = language, task = "translate")
+    filePath = os.path.join(Vdir, "subtitle.srt")
     segments = transcribtion["segments"]
     for segment in segments:
         sTime = str(0)+str(timedelta(seconds=int(segment['start'])))+',000'
         fTime = str(0)+str(timedelta(seconds=int(segment['end']))) +',000'
         text = segment['text']
         subtitleSeg = f"{segment['id']+1}\n{sTime} --> {fTime}\n{text}\n\n"
-        with open("subtitle.srt" , 'a' , encoding='utf-8') as srtFile:
+        with open(filePath , 'a' , encoding='utf-8') as srtFile:
             srtFile.write(subtitleSeg)
+        baseName , extention = os.path.splitext(Vname)
+        output = baseName + "_with_subtitles" + extention
+        ffmpeg.input(path).filter('subtitles', srtFile).output(output).run(overwrite_output=True)
         
 
 app = typer.Typer()
@@ -119,163 +195,326 @@ def video(Vpath: str, url : bool = typer.Option(False, help="Is this a URL?")):
         downloadVideo(link)
     else :
         path = Vpath
-        return path
+        Vdir = os.path.dirname(path)
+        Vname = os.path.basename(path)
+        return path, Vdir, Vname
     
 
 @app.command()
-def addSub(lang : str = "en", help="""use for ISO 639-1 language code for language 
+def addSub(lang : str = typer.Option("auto" , "--lang" , "-l"), help="""language is auto the orginal for translate use ISO 639-1 language code
 Language	Code
-Abkhazian	AB
-Afar	AA
-Afrikaans	AF
-Albanian	SQ
-Amharic	AM
-Arabic	AR
-Armenian	HY
-Assamese	AS
-Aymara	AY
-Azerbaijani	AZ
-Bashkir	BA
-Basque	EU
-Bengali, Bangla	BN
-Bhutani	DZ
-Bihari	BH
-Bislama	BI
-Breton	BR
-Bulgarian	BG
-Burmese	MY
-Byelorussian	BE
-Cambodian	KM
-Catalan	CA
-Chinese	ZH
-Corsican	CO
-Croatian	HR
-Czech	CS
-Danish	DA
-Dutch	NL
-English, American	EN
-Esperanto	EO
-Estonian	ET
-Faeroese	FO
-Fiji	FJ
-Finnish	FI
-French	FR
-Frisian	FY
-Gaelic (Scots Gaelic)	GD
-Galician	GL
-Georgian	KA
-German	DE
-Greek	EL
-Greenlandic	KL
-Guarani	GN
-Gujarati	GU
-Hausa	HA
-Hebrew	IW
-Hindi	HI
-Hungarian	HU
-Icelandic	IS
-Indonesian	IN
-Interlingua	IA
-Interlingue	IE
-Inupiak	IK
-Irish	GA
-Italian	IT
-Japanese	JA
-Javanese	JW
-Kannada	KN
-Kashmiri	KS
-Kazakh	KK
-Kinyarwanda	RW
-Kirghiz	KY
-Kirundi	RN
-Korean	KO
-Kurdish	KU
-Laothian	LO
-Latin	LA
-Latvian, Lettish	LV
-Lingala	LN
-Lithuanian	LT
-Macedonian	MK
-Malagasy	MG
-Malay	MS
-Malayalam	ML
-Maltese	MT
-Maori	MI
-Marathi	MR
-Moldavian	MO
-Mongolian	MN
-Nauru	NA
-Nepali	NE
-Norwegian	NO
-Occitan	OC
-Oriya	OR
-Oromo, Afan	OM
-Pashto, Pushto	PS
-Persian	FA
-Polish	PL
-Portuguese	PT
-Punjabi	PA
-Quechua	QU
-Rhaeto-Romance	RM
-Romanian	RO
-Russian	RU
-Samoan	SM
-Sangro	SG
-Sanskrit	SA
-Serbian	SR
-Serbo-Croatian	SH
-Sesotho	ST
-Setswana	TN
-Shona	SN
-Sindhi	SD
-Singhalese	SI
-Siswati	SS
-Slovak	SK
-Slovenian	SL
-Somali	SO
-Spanish	ES
-Sudanese	SU
-Swahili	SW
-Swedish	SV
-Tagalog	TL
-Tajik	TG
-Tamil	TA
-Tatar	TT
-Tegulu	TE
-Thai	TH
-Tibetan	BO
-Tigrinya	TI
-Tonga	TO
-Tsonga	TS
-Turkish	TR
-Turkmen	TK
-Twi	TW
-Ukrainian	UK
-Urdu	UR
-Uzbek	UZ
-Vietnamese	VI
-Volapuk	VO
-Welsh	CY
-Wolof	WO
-Xhosa	XH
-Yiddish	JI
-Yoruba	YO
-Zulu	ZU
+Abkhazian	ab
+Afar	aa
+Afrikaans	af
+Albanian	sq
+Amharic	am
+Arabic	ar
+Armenian	hy
+Assamese	as
+Aymara	ay
+Azerbaijani	az
+Bashkir	ba
+Basque	eu
+Bengali, Bangla	bn
+Bhutani	dz
+Bihari	bh
+Bislama	bi
+Breton	br
+Bulgarian	bg
+Burmese	my
+Byelorussian	be
+Cambodian	km
+Catalan	ca
+Chinese	zh
+Corsican	co
+Croatian	hr
+Czech	cs
+Danish	da
+Dutch	nl
+English, American	en
+Esperanto	eo
+Estonian	et
+Faeroese	fo
+Fiji	fj
+Finnish	fi
+French	fr
+Frisian	fy
+Gaelic (Scots Gaelic)	gd
+Galician	gl
+Georgian	ka
+German	de
+Greek	el
+Greenlandic	kl
+Guarani	gn
+Gujarati	gu
+Hausa	ha
+Hebrew	iw
+Hindi	hi
+Hungarian	hu
+Icelandic	is
+Indonesian	in
+Interlingua	ia
+Interlingue	ie
+Inupiak	ik
+Irish	ga
+Italian	it
+Japanese	ja
+Javanese	jw
+Kannada	kn
+Kashmiri	ks
+Kazakh	kk
+Kinyarwanda	rw
+Kirghiz	ky
+Kirundi	rn
+Korean	ko
+Kurdish	ku
+Laothian	lo
+Latin	la
+Latvian, Lettish	lv
+Lingala	ln
+Lithuanian	lt
+Macedonian	mk
+Malagasy	mg
+Malay	ms
+Malayalam	ml
+Maltese	mt
+Maori	mi
+Marathi	mr
+Moldavian	mo
+Mongolian	mn
+Nauru	na
+Nepali	ne
+Norwegian	no
+Occitan	oc
+Oriya	or
+Oromo, Afan	om
+Pashto, Pushto	ps
+Persian	fa
+Polish	pl
+Portuguese	pt
+Punjabi	pa
+Quechua	qu
+Rhaeto-Romance	rm
+Romanian	ro
+Russian	ru
+Samoan	sm
+Sangro	sg
+Sanskrit	sa
+Serbian	sr
+Serbo-Croatian	sh
+Sesotho	st
+Setswana	tn
+Shona	sn
+Sindhi	sd
+Singhalese	si
+Siswati	ss
+Slovak	sk
+Slovenian	sl
+Somali	so
+Spanish	es
+Sudanese	su
+Swahili	sw
+Swedish	sv
+Tagalog	tl
+Tajik	tg
+Tamil	ta
+Tatar	tt
+Tegulu	te
+Thai	th
+Tibetan	bo
+Tigrinya	ti
+Tonga	to
+Tsonga	ts
+Turkish	tr
+Turkmen	tk
+Twi	tw
+Ukrainian	uk
+Urdu	ur
+Uzbek	uz
+Vietnamese	vi
+Volapuk	vo
+Welsh	cy
+Wolof	who
+Xhosa	xh
+Yiddish	ji
+Yoruba	yo
+Zulu	zu
 """):
-    typer.echo("start converting to audio......")
-
-    video2audio(path , Vdir)
+    if audioready:
+        pass
+    else:
+        typer.echo("start converting to audio......")
+        video2audio(path , Vdir)
     typer.echo("start creating subtitles file......")
-    transcription("output.wav", lang)
+    transcription(Apath, lang)
     typer.echo("video ready with subtitles......")
 
 @app.command()
-def summarize(ratio : int = 7, help="How much the summary smaller than orginal text"):
-    typer.echo("start converting to audio......")
-    video2audio(path , Vdir)
-    typer.echo("start transcribing......")
-    audio2text()
-    pass
+def summarize(ratio : int = 7,lang : str =typer.Option("auto" , "--lang","-l",help ="""language code and the default is video Orginal for translate use ISO 639-1 language code
+Language	Code
+Abkhazian	ab
+Afar	aa
+Afrikaans	af
+Albanian	sq
+Amharic	am
+Arabic	ar
+Armenian	hy
+Assamese	as
+Aymara	ay
+Azerbaijani	az
+Bashkir	ba
+Basque	eu
+Bengali, Bangla	bn
+Bhutani	dz
+Bihari	bh
+Bislama	bi
+Breton	br
+Bulgarian	bg
+Burmese	my
+Byelorussian	be
+Cambodian	km
+Catalan	ca
+Chinese	zh
+Corsican	co
+Croatian	hr
+Czech	cs
+Danish	da
+Dutch	nl
+English, American	en
+Esperanto	eo
+Estonian	et
+Faeroese	fo
+Fiji	fj
+Finnish	fi
+French	fr
+Frisian	fy
+Gaelic (Scots Gaelic)	gd
+Galician	gl
+Georgian	ka
+German	de
+Greek	el
+Greenlandic	kl
+Guarani	gn
+Gujarati	gu
+Hausa	ha
+Hebrew	iw
+Hindi	hi
+Hungarian	hu
+Icelandic	is
+Indonesian	in
+Interlingua	ia
+Interlingue	ie
+Inupiak	ik
+Irish	ga
+Italian	it
+Japanese	ja
+Javanese	jw
+Kannada	kn
+Kashmiri	ks
+Kazakh	kk
+Kinyarwanda	rw
+Kirghiz	ky
+Kirundi	rn
+Korean	ko
+Kurdish	ku
+Laothian	lo
+Latin	la
+Latvian, Lettish	lv
+Lingala	ln
+Lithuanian	lt
+Macedonian	mk
+Malagasy	mg
+Malay	ms
+Malayalam	ml
+Maltese	mt
+Maori	mi
+Marathi	mr
+Moldavian	mo
+Mongolian	mn
+Nauru	na
+Nepali	ne
+Norwegian	no
+Occitan	oc
+Oriya	or
+Oromo, Afan	om
+Pashto, Pushto	ps
+Persian	fa
+Polish	pl
+Portuguese	pt
+Punjabi	pa
+Quechua	qu
+Rhaeto-Romance	rm
+Romanian	ro
+Russian	ru
+Samoan	sm
+Sangro	sg
+Sanskrit	sa
+Serbian	sr
+Serbo-Croatian	sh
+Sesotho	st
+Setswana	tn
+Shona	sn
+Sindhi	sd
+Singhalese	si
+Siswati	ss
+Slovak	sk
+Slovenian	sl
+Somali	so
+Spanish	es
+Sudanese	su
+Swahili	sw
+Swedish	sv
+Tagalog	tl
+Tajik	tg
+Tamil	ta
+Tatar	tt
+Tegulu	te
+Thai	th
+Tibetan	bo
+Tigrinya	ti
+Tonga	to
+Tsonga	ts
+Turkish	tr
+Turkmen	tk
+Twi	tw
+Ukrainian	uk
+Urdu	ur
+Uzbek	uz
+Vietnamese	vi
+Volapuk	vo
+Welsh	cy
+Wolof	who
+Xhosa	xh
+Yiddish	ji
+Yoruba	yo
+Zulu	zu""") , help="How much the summary smaller than orginal text"):
+    if audioready:
+        pass
+    else:
+        typer.echo("start converting to audio......")
+        video2audio(path , Vdir)
+    if textready:
+        pass
+    else:
+        typer.echo("start transcribing......")
+        audio2text(Apath)
+    typer.echo("start summarizing......")
+    summarize(transcribtion , ratio)
+
+@app.command()
+def explain():
+    if audioready:
+        pass
+    else:
+        typer.echo("start converting to audio......")
+        video2audio(path , Vdir)
+    if textready:
+        pass
+    else:
+        typer.echo("start transcribing......")
+        audio2text(Apath)
+    typer.echo("start paraphrasing......")
+    paraphrase(transcribtion)
     
 
 def main():
