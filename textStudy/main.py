@@ -1,4 +1,3 @@
-import moviepy as mv
 import typer
 import whisper
 import os
@@ -10,11 +9,14 @@ import yt_dlp
 from datetime import datetime, timedelta
 import uuid
 from rich.progress import track
-import nltk
-import nltk.tokenize
 import semantic_text_splitter
 from tokenizers import Tokenizer
 import pipeline
+import weasyprint
+import requests
+import textwrap
+import json
+
 audioready = False
 textready = False
 ffmpeg_path = get_ffmpeg_exe()
@@ -42,7 +44,68 @@ class progressHook:
         elif d['state'] == 'finished':
             self.progress.update(self.task_id , completed = d.get('total_bytes' , 100) , total = d.get('total_bytes' , 100))
 
+def markDown(text, functionU):
+    mdPath = os.path.splitext(path)[0] + functionU + ".md"
+    with open(mdPath,"w", encoding="utf-8") as m:
+        m.write("#generated content\n\n")
+        for i, line in enumerate(text.split("\n"), 1):
+            if line.strip():
+                m.write(f"{i}. {line.strip()}\n\n")
 
+
+
+def pdf(text, functionU):
+    pdfPath = os.path.splitext(path)[0]+functionU+".pdf"
+    headd = "generated content"
+    html = f"""
+<html>
+<head>
+    <meta chrset="utf-8">
+    <style>
+    body {{font-family: 'Georgia', serif; padding: 1em; border-radius: 5px; overflow: auto; }}
+    h1 {{ text-align: center; color: #003366;}}
+    h2 {{ color: #005588; margin-top: 1.5em; }}
+    pre {{ background: #f4f4f4; padding: 1em; border-radius: 5px; overflow-x: auto; }}
+    code {{ background: #f0f0f0; padding: 1em; border-radius: 5px; overflow-x: auto; }}
+    </style>
+</head>
+<h1>{headd}</h1>
+<pre>{text.strip()}</pre>
+</html>
+"""
+    weasyprint.HTML(string=html).write_pdf(pdfPath)
+    pass
+
+
+def LaTeX(text, functionU):
+    latexPath = os.path.splitext(path)[0]+ functionU +".tex"
+    with open(latexPath,"w", encoding="utf-8") as l:
+        l.write(r"""\documentclass{rticle}
+\usepackage[utf-8]{inputenc}
+\usepackage{enumitem}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{geometry}
+\geometry{margin=1in}
+\title{Generated Content}
+\date{\today}
+\begin{document}
+\maketitle
+""")
+        safeText = (
+            text.replace("&",r"\&")
+                .replace("%",r"\%")
+                .replace("#",r"\#")
+                .replace("_",r"\_")
+                .replace("~",r"\textasciitilde{}")
+                .replace("^",r"\textasciicircum{}")
+                .replace("\\",r"\textbackslash{}")
+        )
+        l.write(safeText.strip())
+        l.write(r"\end{document}")
 
 def downloadVideo(Vlink):
     dir = Path.cwd()
@@ -130,14 +193,29 @@ def summary(transcribtion: str , ratio : int):
 
          
 
-def paraphrase(transcribtion:str):
+def paraphrase(transcribtion:str, fileType, tAPI: bool= False, API:str = None, apiModel:str = None, apiKey:str =None):
+    if fileType == "pdf":
+        fftype ="plain text formatted for printable PDF."
+    elif fileType == "markdown":
+        fftype = """
+- Format output in **Markdown**.
+- Start each chunk with: `## {Section name}{n}`"""
+    elif fileType == "latex":
+        fftype = """
+- Format output in **LaTeX**.
+- Start each section with: `\section*{name}`
+- Use `\begin{enumerate}` for paragraph."""
+
     maxTokens = 1024
-    tokenizer = transformers.AutoTokenizer.from_pretrained("flan-t5-base")
-    model = transformers.AutoModelForSeq2SeqLM.from_pretrained("flan-t5-base")
-    splitTokenizer = Tokenizer.from_pretrained("bert-base-uncased")
-    splitter = semantic_text_splitter.TextSplitter.from_huggingface_tokenizer(splitTokenizer, maxTokens)
-    chunks = splitter.chunks(transcribtion)
+    
+    if tAPI:
+        chunks = textwrap.wrap(transcribtion, width = 1500,break_long_words=False)
+    else:
+        splitTokenizer = Tokenizer.from_pretrained("bert-base-uncased")
+        splitter = semantic_text_splitter.TextSplitter.from_huggingface_tokenizer(splitTokenizer, maxTokens)
+        chunks = splitter.chunks(transcribtion)
     Fchunks = []
+
 
     for chunk in chunks:
         prompt = f"""
@@ -152,17 +230,79 @@ Adapt your writing style based on the type of video content
 - For computer Science: explain the base and topics, with code blocks
 
 Format the result like educational notes or articles with a clear titles,structured sections, and coherent flow.
-
+with {fileType} format that {fftype}
 transcribt:
 \"\"\"
 {chunk}
 \"\"\"
 """
-        inputs = tokenizer(prompt, return_tensors = "pt" , truncation = True)
-        output = model.generate(**inputs,max_new_tokens = 1024)
-        decoded = tokenizer.decode(output[0],skip_special_tokens = True)
-        Fchunks.append(decoded.strip())
+        if tAPI:
+            if API.lower == "huggingface":
+                headers = {"Authorization":f"Bearer {apiKey}"}
+                url = f"https://api-interface.huggingface.co/models/{apiModel}"
+                response = requests.post(url, headers=headers, json={"inputs":prompt})
+                text = response.json()
+                result = text[0]['generated_text'] if isinstance(text,list) else text.get("generated_text","")
+
+            elif API.lower =="cohere":
+                headers = {"Authorization":f"Bearer {apiKey}"}
+                url = "https://api.cohere.ai/generate"
+                payload = {"model":apiModel, "prompt": prompt, "max_tokens":800, "temperature":0.7}
+                response = requests.post(url , headers=headers, json=payload)
+                result = response.json()['generations'][0]['text']
+
+            elif API.lower =="replicate":
+                headers = {"Authorization":f"Token {apiKey}", "Content-Type":"application/json"}
+                url = "https://api.replicate.com/v1/predictions"
+                payload = {"model":apiModel, "input":{"prompt": prompt}}
+                response = requests.post(url, headers= headers, json= payload)
+                prediction = response.json()
+                result =prediction.get("output", "[replicate pending...]")
+            
+            elif API.lower =="groq":
+                headers = {"Autorization":f"Bearer {apiKey}"}
+                url = "https://api.groq.com/openai/v1/chat/completions"
+                payload = {"model":apiModel, "massages":[{"role":"user", "content": prompt}]}
+                response = requests.post(url ,  headers= headers, json=payload)
+                result= response.json()['choices'][0]['massage']['content']
+
+            elif API.lower == "ollama":
+                url = "https://localhost:11434/api/generate"
+                payload = {"model": apiModel,"prompt": prompt}
+                response = requests.post(url, json= payload, stream=True)
+                chunks = []
+                for i in response.iter_lines():
+                    if i:
+                        part = json.loads(i.decode("utf-8"))
+                        chunks.append(part.get("response",""))
+                result = "".join(chunks)
+
+            elif API.lower == "gemini":
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{apiModel}:generateContent?key={apiKey}"
+                headers = {"content-type": "application/json"}
+                payload = {"contents":[{"parts":[{"text":prompt}]}]}
+                response = requests.post(url, headers=headers, json=payload)
+                result =response.json()["candidates"][0]["content"]["parts"][0]["text"]
+            
+            else: 
+                raise ValueError(f"API '{API}' is not supported, true inputs, or free, or reached free-limit")
+            Fchunks.append(result.strip())
+        else:
+            tokenizer = transformers.AutoTokenizer.from_pretrained("flan-t5-base")
+            model = transformers.AutoModelForSeq2SeqLM.from_pretrained("flan-t5-base")
+            inputs = tokenizer(prompt, return_tensors = "pt" , truncation = True)
+            output = model.generate(**inputs,max_new_tokens = 1024)
+            decoded = tokenizer.decode(output[0])
+            Fchunks.append(decoded.strip())
+
+
     Fparaphresed = "\n\n".join(Fchunks)
+    if fileType == "pdf":
+        pdf(Fparaphresed, "paraphrased")
+    elif fileType == "markdown":
+        markDown(Fparaphresed, "paraphrased")
+    elif fileType == "latex":
+        LaTeX(Fparaphresed, "paraphrased")
     return Fparaphresed
 
 
@@ -187,9 +327,149 @@ def transcription(audio, language:str = "auto"):
         ffmpeg.input(path).filter('subtitles', srtFile).output(output).run(overwrite_output=True)
         
 
+def questions(numberQuestions , fileType, style:str = "mcq", tAPI:bool = False, API:str =None,apiModel:str=None,apiKey:str=None):
+    def questionsPrompt(chunk:str, style:str ,Number : int):
+        return f""" You are an intelligent quesions generator.
+
+Analys the following text and generate {Number} {style} questions that cover the key ideas, facts, and reasoning presented.
+
+Be sure the quesions cover the full content of the passage and assess undersainding fairly.
+
+Text
+\"\"\"
+{chunk}
+\"\"\"
+
+Now generate {Number} {style} questions based on the above text.
+
+{explainfileType}
+"""
+    if tAPI:
+        chunks = textwrap.wrap(transcribtion, width = 1500, break_long_words=False)
+    else:
+        tokenizer = transformers.AutoTokenizer.from_pretrained("bert-base-uncased")
+        splitter = semantic_text_splitter.TextSplitter.from_huggingface_tokenizer(tokenizer, max_tokens = 1024)
+        chunks = splitter.chunks(transcribtion)
+    Ftokenizer = transformers.AutoTokenizer.from_pretrained("flan-t5-base")
+    model = transformers.AutoModelForSeq2SeqLM.from_pretrained("flan-t5-base")
+    chunkNtokens = [len(tokenizer.encode(chunk))for chunk in chunks]
+    TotalNtokens = sum(chunkNtokens) 
+    quesionsForChunk = []
+    connections = []
+    if fileType == "markdown":
+        explainfileType = """
+- Format question in **markdwon**.
+- start each chunk with: ##section
+- Use bold for question numbers: `**1.**`
+- For MCQ if question are MCQ list options using `- A)`,`- B)` ,etc.
+"""
+    elif fileType == "pdf":
+        explainfileType = """
+- Write in plain text formatted for printable PDF.
+- Start each section with: `Section: Questions`
+- Use numbered questions and A), B), C)... for MCQs.
+"""
+    elif fileType == "latex":
+        explainfileType =r"""
+- Format output in **LaTeX**.
+- Start each section with: `\section*{Questions}`
+- Use `\begin{enumerate}` for questions.
+- Use `\item` for each question, and if MCQ, embed options using `\begin{itemize} \item A... \end{itemize}`
+"""
+    else:
+        typer.echo("unavailable file type. choose from: markdown, pdf, latex", fg = "darkred")
+
+    for tokens in chunkNtokens:
+        quesions = max(1, round((tokens / TotalNtokens)* numberQuestions))
+        quesions.append(quesionsForChunk)
+
+    while sum(quesionsForChunk) > numberQuestions:
+        maxChunk = quesionsForChunk.index.max(quesionsForChunk)
+        maxChunk -=1
+    while sum(quesionsForChunk) < numberQuestions:
+        minChunk = quesionsForChunk.index.min(quesionsForChunk)
+        minChunk += 1
+    
+    for chunkI, questionsN in zip(chunks, quesionsForChunk):
+        prompt = questionsPrompt(chunkI , style , questionsN)
+        if tAPI:
+            API = API.lower()
+
+            if API == "huggingface":
+                headers = {"Authorization": f"Bearer {apiKey}"}
+                url = f"https://api-inference.huggingface.co/models/{apiModel}"
+                response = requests.post(url, headers=headers, json={"inputs": prompt})
+                result = response.json()
+                decoded = result[0]['generated_text'] if isinstance(result, list) else result.get("generated_text", "")
+
+            elif API == "cohere":
+                headers = {"Authorization": f"Bearer {apiKey}", "Content-Type": "application/json"}
+                url = "https://api.cohere.ai/generate"
+                payload = {
+                    "model": apiModel,
+                    "prompt": prompt,
+                    "max_tokens": 800,
+                    "temperature": 0.7
+                }
+                response = requests.post(url, headers=headers, json=payload)
+                decoded = response.json()['generations'][0]['text']
+
+            elif API == "replicate":
+                headers = {"Authorization": f"Token {apiKey}", "Content-Type": "application/json"}
+                url = "https://api.replicate.com/v1/predictions"
+                payload = {
+                    "version": apiModel,
+                    "input": {"prompt": prompt}
+                }
+                response = requests.post(url, headers=headers, json=payload)
+                result = response.json()
+                decoded = result.get("output", "[replicate pending...]")
+
+            elif API == "groq":
+                headers = {"Authorization": f"Bearer {apiKey}"}
+                url = "https://api.groq.com/openai/v1/chat/completions"
+                payload = {
+                    "model": apiModel,
+                    "messages": [{"role": "user", "content": prompt}]
+                }
+                response = requests.post(url, headers=headers, json=payload)
+                decoded = response.json()['choices'][0]['message']['content']
+
+            elif API == "ollama":
+                url = "http://localhost:11434/api/generate"
+                payload = {"model": apiModel, "prompt": prompt}
+                response = requests.post(url, json=payload, stream=True)
+                parts = [json.loads(line.decode())['response'] for line in response.iter_lines() if line]
+                decoded = "".join(parts)
+
+            elif API == "gemini":
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{apiModel}:generateContent?key={apiKey}"
+                headers = {"Content-Type": "application/json"}
+                payload = {"contents": [{"parts": [{"text": prompt}]}]}
+                response = requests.post(url, headers=headers, json=payload)
+                decoded = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+
+            else:
+                raise ValueError(f"API '{API}' is not supported or free.")
+        else:
+            inputs = Ftokenizer(prompt, return_tensors = "pt", trancation = True)
+            outputs = model.generate(**inputs, max_new_tokens = 1024)
+            decoded = Ftokenizer.decode(outputs[0])
+        connections.append(decoded.strip())
+        FfQuestions = "\n\n".join(connections)
+        if fileType == "latex":
+            LaTeX(FfQuestions, "questions")
+        elif fileType == "pdf":
+            pdf(FfQuestions, "questions")
+        elif fileType == "md":
+            markDown(FfQuestions, "questions")
+        return FfQuestions
+    
+
+
 app = typer.Typer()
 @app.command()
-def video(Vpath: str, url : bool = typer.Option(False, help="Is this a URL?")):
+def video(Vpath: str, url : bool = typer.Option(False, "--url", "-u",help="Is this a URL?")):
     if url :
         link = Vpath
         downloadVideo(link)
@@ -502,7 +782,8 @@ Zulu	zu""") , help="How much the summary smaller than orginal text"):
     summarize(transcribtion , ratio)
 
 @app.command()
-def explain():
+def explain(fileType: str = typer.Argument(...,"-t","--type",help ="Output file markdown, LaTex, or pdf as you want, and will be saved in same your video directory"),onAPI:bool = typer.Option(False,"-o","--onAPI" ,help="Are you want work with API instead of locally?"),API:str=typer.Option(None,"-a","--api"),model:str=typer.option(None,"-m","--model"), key:str=typer.Option(None,"-k","--key")):
+    usedType = fileType.lower()
     if audioready:
         pass
     else:
@@ -514,10 +795,24 @@ def explain():
         typer.echo("start transcribing......")
         audio2text(Apath)
     typer.echo("start paraphrasing......")
-    paraphrase(transcribtion)
+    paraphrase(transcribtion, usedType,onAPI,API,model,key)
     
+@app.command()
+def questions(number :int, style:str = typer.Argument(...,"-s","--style",help = "style of questions from next: multiple choice, true/false, short answer, essay, fill in the blank"), file_type: str = typer.Argument(...,"-t","--type",help ="Output file markdown, LaTex, or pdf as you want, and will be saved in same your video directory"),tAPI:bool = typer.Option(False,"-t","--tAPI" ,help="Are you want work with API instead of locally?"),API:str=typer.Option(None,"-a","--api"),model:str=typer.option(None,"-m","--model"), key:str=typer.Option(None,"-k","--key")):
+    usedType = file_type.lower()
+    if audioready:
+        pass
+    else:
+        typer.echo("start converting to audio......")
+        video2audio(path , Vdir)
+    if textready:
+        pass
+    else:
+        typer.echo("start transcribing......")
+        audio2text(Apath)
+    typer.echo("start preparing questions......")
+    questions(number,style,usedType,tAPI,API,model,key)
 
-def main():
     app
 if __name__ == '__main__' :
     app
