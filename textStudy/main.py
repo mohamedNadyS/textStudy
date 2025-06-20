@@ -816,7 +816,7 @@ Zulu	zu""")):
     summarize(transcribtion , ratio)
 
 @app.command()
-def explain(fileType: str = typer.Argument(...,"-t","--type",help ="Output file markdown, LaTex, or pdf as you want, and will be saved in same your video directory"),onAPI:bool = typer.Option(False,"-o","--onAPI" ,help="Are you want work with API instead of locally?"),API:str=typer.Option(None,"-a","--api"),model:str=typer.option(None,"-m","--model"), key:str=typer.Option(None,"-k","--key")):
+def explain(fileType: str = typer.Option(...,"-t","--type",help ="Output file markdown, LaTex, or pdf as you want, and will be saved in same your video directory"),onAPI:bool = typer.Option(False,"-o","--onAPI" ,help="Are you want work with API instead of locally?"),API:str=typer.Option(None,"-a","--api"),model:str=typer.Option(None,"-m","--model"), key:str=typer.Option(None,"-k","--key")):
     global audioready, textready, Apath, path, Vdir, transcribtion
     if not path:
         typer.echo("Please set a video first using 'textStudy video <path>'")
@@ -838,7 +838,7 @@ def explain(fileType: str = typer.Argument(...,"-t","--type",help ="Output file 
     paraphrase(transcribtion, usedType,onAPI,API,model,key)
     
 @app.command()
-def questions(number :int= typer.Argument(...,"-n","--number", help="number generated questions on the video"), style:str = typer.Argument(...,"-s","--style",help = "style of questions from next: multiple choice, true/false, short answer, essay, fill in the blank"), file_type: str = typer.Argument(...,"-t","--type",help ="Output file markdown, LaTex, or pdf as you want, and will be saved in same your video directory"),tAPI:bool = typer.Option(False,"-t","--tAPI" ,help="Are you want work with API instead of locally?"),API:str=typer.Option(None,"-a","--api"),model:str=typer.option(None,"-m","--model"), key:str=typer.Option(None,"-k","--key")):
+def questions(number :int= typer.Option(...,"-n","--number", help="number generated questions on the video"), style:str = typer.Option(...,"-s","--style",help = "style of questions from next: multiple choice, true/false, short answer, essay, fill in the blank"), file_type: str = typer.Option(...,"-t","--type",help ="Output file markdown, LaTex, or pdf as you want, and will be saved in same your video directory"),tAPI:bool = typer.Option(False,"-t","--tAPI" ,help="Are you want work with API instead of locally?"),API:str=typer.Option(None,"-a","--api"),model:str=typer.Option(None,"-m","--model"), key:str=typer.Option(None,"-k","--key")):
     global audioready, textready, Apath, path, Vdir, transcribtion
     usedType = file_type.lower()
     if not path:
@@ -860,6 +860,6 @@ def questions(number :int= typer.Argument(...,"-n","--number", help="number gene
     typer.echo("start preparing questions......")
     questions(number,transcribtion, usedType,style,tAPI,API,model,key)
 
-    app
+main = app
 if __name__ == '__main__' :
-    app
+    app()
