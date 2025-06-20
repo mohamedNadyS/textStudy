@@ -12,6 +12,7 @@ from rich.progress import track
 import semantic_text_splitter
 from tokenizers import Tokenizer
 import pipeline
+from transformers import pipeline
 import weasyprint
 import requests
 import textwrap
@@ -26,6 +27,8 @@ os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
 path = ""
 Vdir = ""
 Vname = ""
+Apath = ""
+transcribtion = ""
 class progressHook:
     def __init__(self , progress , task_id):
         self.progress = progress
@@ -37,10 +40,10 @@ class progressHook:
                 total = d['total_bytes']
                 downloaded = d['downloaded_bytes']
                 self.progress.update(self.task_id , total = total , completed = downloaded)
-        elif 'total_bytes_estimate' in d:
-            total = d['total_bytes_estimate']
-            downloaded = d['downloaded_bytes']
-            self.progress.update(self.task_id , total = total , completed = downloaded)
+            elif 'total_bytes_estimate' in d:
+                total = d['total_bytes_estimate']
+                downloaded = d['downloaded_bytes']
+                self.progress.update(self.task_id , total = total , completed = downloaded)
         elif d['state'] == 'finished':
             self.progress.update(self.task_id , completed = d.get('total_bytes' , 100) , total = d.get('total_bytes' , 100))
 
@@ -60,7 +63,7 @@ def pdf(text, functionU):
     html = f"""
 <html>
 <head>
-    <meta chrset="utf-8">
+    <meta charset="utf-8">
     <style>
     body {{font-family: 'Georgia', serif; padding: 1em; border-radius: 5px; overflow: auto; }}
     h1 {{ text-align: center; color: #003366;}}
@@ -80,7 +83,7 @@ def pdf(text, functionU):
 def LaTeX(text, functionU):
     latexPath = os.path.splitext(path)[0]+ functionU +".tex"
     with open(latexPath,"w", encoding="utf-8") as l:
-        l.write(r"""\documentclass{rticle}
+        l.write(r"""\documentclass{article}
 \usepackage[utf-8]{inputenc}
 \usepackage{enumitem}
 \usepackage{amsmath}
@@ -108,6 +111,7 @@ def LaTeX(text, functionU):
         l.write(r"\end{document}")
 
 def downloadVideo(Vlink):
+    global path, Vdir, Vname
     dir = Path.cwd()
     Vdir = dir / "videos"
     Vdir.mkdir(exist_ok=True)
@@ -115,9 +119,9 @@ def downloadVideo(Vlink):
     uID = uuid.uuid4().hex[:6]
     Vname = f"%(title).50s_{nowTime}_{uID}.%(ext)s"
 
-    path = Vdir / Vname
+    temp_path = Vdir / Vname
     ydl_opts = {
-        'outtmpl': str(path),
+        'outtmpl': str(temp_path),
         'format': 'bestvideo[height<=480]+bestaudio/best',
         'merge_output_format': 'mp4'
     }
@@ -125,19 +129,26 @@ def downloadVideo(Vlink):
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         try:
             ydl.download([Vlink])
-        except:
-            typer.echo("unavaliable URL")
+        except Exception as e:
+            typer.echo(f"unavaliable URL: {e}")
+            return None,None,None
+
     
     path = None
     for file in Vdir.glob(f"*{nowTime}_{uID}*"):
         if file.is_file() and file.suffix.lower() in ('.mp4' ,'.mkv' , '.avi' ,'.mov'):
-            path = file
+            path = str(file)
             break
-    Vname = os.path.basename(path)
-    return Vdir, Vname , path
+    if path:
+        Vname = os.path.basename(path)
+        return str(Vdir), Vname , path
+    else:
+        typer.echo("Downloaded file not found")
+        return None,None,None
 
 
 def video2audio(Vpath , Apath):
+    global audioready
     Apath = os.path.splitext(Vpath)[0] + ".wav"
     ffmpeg.input(Vpath).output(
         str(Apath),
@@ -147,10 +158,11 @@ def video2audio(Vpath , Apath):
         ar = '16000'
     ).overwrite_output().run(quit=True)
     audioready = True
-    return {Apath : str}
+    return Apath
 
 
 def audio2text(audioPath, language ="auto"):
+    global textready, transcribtion
     model = whisper.load_model('base')
     if language == "auto":
         transcribtion = model.transcribe(audioPath)
@@ -183,8 +195,8 @@ def summary(transcribtion: str , ratio : int):
         wordsNumber = len(paragraph.split())
         maximumOut = int(wordsNumber/ratio + (((1/ratio)*100)/15))
         minimumOut = int(wordsNumber/ratio)
-        inputs = sumTokenizer.encode("summarize :" + paragraph, return_tensors = "pt", max_length =1024 , trancution = True)
-        summaryIdes = model.generate(inputs , max_length = maximumOut , min_length = minimumOut, length_penality = 1 , num_beams = 4 , early_stopping = True)
+        inputs = sumTokenizer.encode("summarize :" + paragraph, return_tensors = "pt", max_length =1024 , truncation = True)
+        summaryIdes = model.generate(inputs , max_length = maximumOut , min_length = minimumOut, length_penalty = 1 , num_beams = 4 , early_stopping = True)
         Fsummary = sumTokenizer.decode(summaryIdes[0] , skip_special_tokens = True)
         summaries.append(Fsummary)
     FFsummary = " ".join(summaries)
@@ -203,7 +215,7 @@ def paraphrase(transcribtion:str, fileType, tAPI: bool= False, API:str = None, a
     elif fileType == "latex":
         fftype = """
 - Format output in **LaTeX**.
-- Start each section with: `\section*{name}`
+- Start each section with: `\\section*{name}`
 - Use `\begin{enumerate}` for paragraph."""
 
     maxTokens = 1024
@@ -262,9 +274,9 @@ transcribt:
             elif API.lower =="groq":
                 headers = {"Autorization":f"Bearer {apiKey}"}
                 url = "https://api.groq.com/openai/v1/chat/completions"
-                payload = {"model":apiModel, "massages":[{"role":"user", "content": prompt}]}
+                payload = {"model":apiModel, "messages":[{"role":"user", "content": prompt}]}
                 response = requests.post(url ,  headers= headers, json=payload)
-                result= response.json()['choices'][0]['massage']['content']
+                result= response.json()['choices'][0]['message']['content']
 
             elif API.lower == "ollama":
                 url = "https://localhost:11434/api/generate"
@@ -298,11 +310,11 @@ transcribt:
 
     Fparaphresed = "\n\n".join(Fchunks)
     if fileType == "pdf":
-        pdf(Fparaphresed, "paraphrased")
+        pdf(Fparaphresed, "_paraphrased")
     elif fileType == "markdown":
-        markDown(Fparaphresed, "paraphrased")
+        markDown(Fparaphresed, "_paraphrased")
     elif fileType == "latex":
-        LaTeX(Fparaphresed, "paraphrased")
+        LaTeX(Fparaphresed, "_paraphrased")
     return Fparaphresed
 
 
@@ -315,19 +327,22 @@ def transcription(audio, language:str = "auto"):
         transcribtion = model.transcribe(audio, language = language, task = "translate")
     filePath = os.path.join(Vdir, "subtitle.srt")
     segments = transcribtion["segments"]
-    for segment in segments:
-        sTime = str(0)+str(timedelta(seconds=int(segment['start'])))+',000'
-        fTime = str(0)+str(timedelta(seconds=int(segment['end']))) +',000'
-        text = segment['text']
-        subtitleSeg = f"{segment['id']+1}\n{sTime} --> {fTime}\n{text}\n\n"
-        with open(filePath , 'a' , encoding='utf-8') as srtFile:
+
+    with open(filePath , 'a' , encoding='utf-8') as srtFile:
+        for segment in segments:
+            sTime = str(0)+str(timedelta(seconds=int(segment['start'])))+',000'
+            fTime = str(0)+str(timedelta(seconds=int(segment['end']))) +',000'
+            text = segment['text']
+            subtitleSeg = f"{segment['id']+1}\n{sTime} --> {fTime}\n{text}\n\n"
             srtFile.write(subtitleSeg)
-        baseName , extention = os.path.splitext(Vname)
-        output = baseName + "_with_subtitles" + extention
-        ffmpeg.input(path).filter('subtitles', srtFile).output(output).run(overwrite_output=True)
+
+    baseName , extention = os.path.splitext(Vname)
+    output = os.path.join(Vdir, baseName + "_with_subtitles" + extention)
+    ffmpeg.input(path).filter('subtitles', filePath).output(output).run(overwrite_output=True)
+    typer.echo(f"video with subtitles saved as: {output}")
         
 
-def questions(numberQuestions , fileType, style:str = "mcq", tAPI:bool = False, API:str =None,apiModel:str=None,apiKey:str=None):
+def questions(numberQuestions ,transcribtion ,fileType, style:str = "mcq", tAPI:bool = False, API:str =None,apiModel:str=None,apiKey:str=None):
     def questionsPrompt(chunk:str, style:str ,Number : int):
         return f""" You are an intelligent quesions generator.
 
@@ -378,6 +393,7 @@ Now generate {Number} {style} questions based on the above text.
 """
     else:
         typer.echo("unavailable file type. choose from: markdown, pdf, latex", fg = "darkred")
+        return None
 
     for tokens in chunkNtokens:
         quesions = max(1, round((tokens / TotalNtokens)* numberQuestions))
@@ -458,11 +474,11 @@ Now generate {Number} {style} questions based on the above text.
         connections.append(decoded.strip())
         FfQuestions = "\n\n".join(connections)
         if fileType == "latex":
-            LaTeX(FfQuestions, "questions")
+            LaTeX(FfQuestions, "_questions")
         elif fileType == "pdf":
-            pdf(FfQuestions, "questions")
+            pdf(FfQuestions, "_questions")
         elif fileType == "md":
-            markDown(FfQuestions, "questions")
+            markDown(FfQuestions, "_questions")
         return FfQuestions
     
 
@@ -470,16 +486,22 @@ Now generate {Number} {style} questions based on the above text.
 app = typer.Typer()
 @app.command()
 def video(Vpath: str, url : bool = typer.Option(False, "--url", "-u",help="Is this a URL?")):
+    global path, Vdir, Vname
     if url :
         link = Vpath
-        downloadVideo(link)
+        result = downloadVideo(link)
+        if result[0] is None:
+            typer.echo("Failed to download video")
+            return 
+        Vdir, path, Vname = result
+
     else :
         path = Vpath
         Vdir = os.path.dirname(path)
         Vname = os.path.basename(path)
+        typer.echo(f"video set: {Vname}")
         return path, Vdir, Vname
     
-
 @app.command()
 def addSub(lang : str = typer.Option("auto" , "--lang" , "-l"), help="""language is auto the orginal for translate use ISO 639-1 language code
 Language	Code
@@ -620,17 +642,22 @@ Yiddish	ji
 Yoruba	yo
 Zulu	zu
 """):
-    if audioready:
-        pass
-    else:
+    global audioready, Apath, path, Vdir
+    if not path:
+        typer.echo("Please set a video first using 'textStudy video <path>'")
+        return
+    if not audioready:
         typer.echo("start converting to audio......")
-        video2audio(path , Vdir)
+        Apath = video2audio(path , Vdir)
+        if not Apath:
+            return
+
     typer.echo("start creating subtitles file......")
     transcription(Apath, lang)
     typer.echo("video ready with subtitles......")
 
 @app.command()
-def summarize(ratio : int = 7,lang : str =typer.Option("auto" , "--lang","-l",help ="""language code and the default is video Orginal for translate use ISO 639-1 language code
+def summarize(ratio : int = typer.Option(6, "--ratio", "-r", help="How much the summary smaller than original text"),lang : str =typer.Option("auto" , "--lang","-l",help ="""language code and the default is video Orginal for translate use ISO 639-1 language code
 Language	Code
 Abkhazian	ab
 Afar	aa
@@ -767,51 +794,71 @@ Wolof	who
 Xhosa	xh
 Yiddish	ji
 Yoruba	yo
-Zulu	zu""") , help="How much the summary smaller than orginal text"):
-    if audioready:
-        pass
-    else:
+Zulu	zu""")):
+    global audioready, textready, Apath, path, Vdir, transcribtion
+    if not path:
+        typer.echo("Please set a video first using 'textStudy video <path>'")
+        return
+
+    if not audioready:
         typer.echo("start converting to audio......")
-        video2audio(path , Vdir)
-    if textready:
-        pass
-    else:
+        Apath = video2audio(path , Vdir)
+        if not Apath:
+            return
+
+    if not textready:
         typer.echo("start transcribing......")
-        audio2text(Apath)
+        result = audio2text(Apath)
+        if not result:
+            return
+
     typer.echo("start summarizing......")
     summarize(transcribtion , ratio)
 
 @app.command()
 def explain(fileType: str = typer.Argument(...,"-t","--type",help ="Output file markdown, LaTex, or pdf as you want, and will be saved in same your video directory"),onAPI:bool = typer.Option(False,"-o","--onAPI" ,help="Are you want work with API instead of locally?"),API:str=typer.Option(None,"-a","--api"),model:str=typer.option(None,"-m","--model"), key:str=typer.Option(None,"-k","--key")):
+    global audioready, textready, Apath, path, Vdir, transcribtion
+    if not path:
+        typer.echo("Please set a video first using 'textStudy video <path>'")
+        return
     usedType = fileType.lower()
-    if audioready:
-        pass
-    else:
+    if not audioready:
         typer.echo("start converting to audio......")
-        video2audio(path , Vdir)
-    if textready:
-        pass
-    else:
+        Apath = video2audio(path , Vdir)
+        if not Apath:
+            return
+
+    if not textready:
         typer.echo("start transcribing......")
-        audio2text(Apath)
+        result = audio2text(Apath)
+        if not result:
+            return
+
     typer.echo("start paraphrasing......")
     paraphrase(transcribtion, usedType,onAPI,API,model,key)
     
 @app.command()
-def questions(number :int, style:str = typer.Argument(...,"-s","--style",help = "style of questions from next: multiple choice, true/false, short answer, essay, fill in the blank"), file_type: str = typer.Argument(...,"-t","--type",help ="Output file markdown, LaTex, or pdf as you want, and will be saved in same your video directory"),tAPI:bool = typer.Option(False,"-t","--tAPI" ,help="Are you want work with API instead of locally?"),API:str=typer.Option(None,"-a","--api"),model:str=typer.option(None,"-m","--model"), key:str=typer.Option(None,"-k","--key")):
+def questions(number :int= typer.Argument(...,"-n","--number", help="number generated questions on the video"), style:str = typer.Argument(...,"-s","--style",help = "style of questions from next: multiple choice, true/false, short answer, essay, fill in the blank"), file_type: str = typer.Argument(...,"-t","--type",help ="Output file markdown, LaTex, or pdf as you want, and will be saved in same your video directory"),tAPI:bool = typer.Option(False,"-t","--tAPI" ,help="Are you want work with API instead of locally?"),API:str=typer.Option(None,"-a","--api"),model:str=typer.option(None,"-m","--model"), key:str=typer.Option(None,"-k","--key")):
+    global audioready, textready, Apath, path, Vdir, transcribtion
     usedType = file_type.lower()
-    if audioready:
-        pass
-    else:
+    if not path:
+        typer.echo("Please set a video first using 'textStudy video <path>'")
+        return
+    if not audioready:
         typer.echo("start converting to audio......")
-        video2audio(path , Vdir)
-    if textready:
-        pass
-    else:
+        Apath = video2audio(path , Vdir)
+        if not Apath:
+            return
+
+    if not textready:
         typer.echo("start transcribing......")
-        audio2text(Apath)
+        result = audio2text(Apath)
+        if not result:
+            return
+    
+
     typer.echo("start preparing questions......")
-    questions(number,style,usedType,tAPI,API,model,key)
+    questions(number,transcribtion, usedType,style,tAPI,API,model,key)
 
     app
 if __name__ == '__main__' :

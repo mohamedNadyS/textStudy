@@ -1,0 +1,2 @@
+[console_scripts]
+textStudy = textStudy.main:main
