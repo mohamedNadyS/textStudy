@@ -16,46 +16,81 @@ cd textStudy
 ```
 #### install the requirments
 ```bash
-pip install -e --break-system-packages
+pip install sentencepiece --prefer-binary
+pip install . --break-system-packages
 ```
-#### *that requires python, pip, and git*
+#### *that requires >=3.8,<3.12 python , pip, pyenv, and git*
 #### if not avalible follow the next
 ----
 #### for Windows
-
-Go to  https://www.python.org/downloads/windows/ for python
-    download the lastest version
-
+python if want use a virual enviroment:
+    Go to  https://github.com/pyenv-win/pyenv-win#installation for python, pip, and pyenv
+        download between 3.8 and 3.11 version
+    then in powershell run
+```bash
+pyenv install 3.11.9
+pyenv local 3.11.9
+python -m venv venv
+venv\Scripts\activate
+pip install -U pip
+pip install -e .
+```
+or
+Go to https://www.python.org/downloads/windows/ and download 3.11.9 version
 and https://git-scm.com/download/win for git
+
+
 
 #### for Mac
 
 run in terminal
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
 ```
 then
 ```bash
-brew install python git
+brew install pyenv git
+pyenv install 3.11.9
+pyenv local 3.11.9
+
+python -m venv venv
+source venv/bin/activate
+
+pip install -U pip
+pip install -e .
 ```
 
 #### for linux
 
 ```bash
 # Debian/Ubuntu
-sudo apt install python3 python3-pip git -y
+sudo add-apt-repository ppa:deadsnakes/ppa
+sudo apt update
+sudo apt install python3.11 python3.11-venv python3.11-distutils git -y
+curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11
 
 # Fedora/RHEL/CentOS/Rocky
-sudo dnf install python3 python3-pip git -y
+sudo dnf install python3.11 python3.11-pip git -y
 
-# Arch/Manjaro
-sudo pacman -S python3 python3-pip git
+# Arch/Manjaro Must use pyenv
+sudo pacman -S --needed base-devel git openssl zlib xz tk
+git clone https://github.com/pyenv/pyenv.git ~/.pyenv
+    #next is for bash
+export PYENV_ROOT="$HOME/.pyenv"
+export PATH="$PYENV_ROOT/bin:$PATH"
+eval "$(pyenv init --path)"
+eval "$(pyenv init -)"
+
+    #next for zsh
+exec "$SHELL"
+
+pyenv install 3.11.9
+pyenv global 3.11.9 #now python python 3.11.9 will be the default now for just the enviroment
 
 # openSUSE
-sudo zypper install python3 python3-pip git
+sudo zypper install python3.11 python3.11-pip git
 
-# Solus
-sudo eopkg install -y python3 python3-pip git
 ```
 
 ## Commands

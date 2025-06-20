@@ -1,6 +1,9 @@
 from setuptools import setup, find_packages
 from setuptools.command.install import install
 import sys
+if sys.version_info >= (3, 12):
+    sys.exit("textStudy requires Python <= 3.11 due to sentencepiece compatibility issues.")
+
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
@@ -22,7 +25,7 @@ setup(
         "Topic :: Education",
         "Topic :: Multimedia :: Video",
     ],
-    python_requires=">=3.8",
+    python_requires=">=3.8,<3.12",
     install_requires=[
         "torch",
         "openai-whisper",
