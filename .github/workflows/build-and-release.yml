@@ -37,11 +37,15 @@ jobs:
           mv dist/main dist/textStudy-linux
           tar -czf dist/textStudy-linux.tar.gz -C dist textStudy-linux
 
-      - name: Upload artifact
+      - name: Split archive if > 1 GB
+        run: |
+          split -b 1000M dist/textStudy-linux.tar.gz dist/textStudy-linux.tar.gz.part_
+
+      - name: Upload split archive parts
         uses: actions/upload-artifact@v4
         with:
           name: textStudy-linux
-          path: dist/textStudy-linux.tar.gz
+          path: dist/textStudy-linux.tar.gz.part_*
 
   build-windows:
     name: Build on Windows
@@ -122,7 +126,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build-linux, build-windows, build-macos]
     steps:
-      - name: Download Linux artifact
+      - name: Download Linux parts
         uses: actions/download-artifact@v4
         with:
           name: textStudy-linux
@@ -144,7 +148,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release/textStudy-linux.tar.gz
+            release/textStudy-linux.tar.gz.part_*
             release/textStudy-windows.zip
             release/textStudy-macos.zip
         env:
