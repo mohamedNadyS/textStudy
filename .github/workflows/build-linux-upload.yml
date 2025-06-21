@@ -1,0 +1,50 @@
+name: Build and Upload Linux Executable
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v1.0.0
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Build on Linux (UPX + Transfer.sh Upload)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y ffmpeg upx curl
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build and compress executable
+        run: |
+          pyinstaller --onefile --noconfirm --strip textStudy/main.py
+          mv dist/main dist/textStudy-linux
+          upx --best --lzma dist/textStudy-linux
+          tar -czf textStudy-linux.tar.gz -C dist textStudy-linux
+
+      - name: Upload to transfer.sh
+        run: |
+          curl --upload-file textStudy-linux.tar.gz https://transfer.sh/textStudy-linux.tar.gz > download_link.txt
+          echo "✅ Public download link:"
+          cat download_link.txt
+
+      - name: Save download link as GitHub artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: textStudy-linux-download-link
+          path: download_link.txt
