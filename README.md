@@ -97,54 +97,21 @@ pip install -e .
 sudo apt install python3.11 python3.11-venv python3.11-distutils git ffmpeg -y
 curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11
 
-#Or try the next for python3.11
-cd /tmp
-curl -O https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tgz
-tar -xvf Python-3.11.9.tgz
-cd Python-3.11.9
-./configure --enable-optimizations
-make -j$(nproc)
-sudo make altinstall
-
 # Fedora/RHEL/CentOS/Rocky
 sudo dnf install python3.11 python3.11-pip git ffmpeg -y
-
-#Or try the next for python3.11
-cd /tmp
-curl -O https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tgz
-tar -xvf Python-3.11.9.tgz
-cd Python-3.11.9
-./configure --enable-optimizations
-make -j$(nproc)
-sudo make altinstall
-
-# Arch/Manjaro Must use pyenv
-sudo pacman -S --needed base-devel git openssl zlib xz tk
-git clone https://github.com/pyenv/pyenv.git ~/.pyenv
-
-#Or try the next for python3.11
-cd /tmp
-curl -O https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tgz
-tar -xvf Python-3.11.9.tgz
-cd Python-3.11.9
-./configure --enable-optimizations
-make -j$(nproc)
-sudo make altinstall
 
 # openSUSE
 sudo zypper install python3.11 python3.11-pip git ffmpeg
 
-#Or try the next for python3.11
+
+# to creat enviroment if python 3.11 if this didn't succes in all this systems run the next
 cd /tmp
 curl -O https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tgz
-tar -xvf Python-3.11.9.tgz
+tar -xf Python-3.11.9.tgz
 cd Python-3.11.9
 ./configure --enable-optimizations
 make -j$(nproc)
 sudo make altinstall
-
-
-# to creat enviroment if python 3.11 if this didn't succes in all this systems run the next
 
 python3.11 -m venv .venv
 source .venv/bin/activate
