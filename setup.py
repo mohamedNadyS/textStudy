@@ -36,6 +36,8 @@ setup(
         "typer[all]",
         "imageio-ffmpeg",
         "yt-dlp",
+        "yt-dlp[extractors]",
+        "browser-cookie3",
         "rich",
         "ffmpeg-python",
         "nltk",
@@ -44,6 +46,7 @@ setup(
         "weasyprint",
         "requests",
         "pipeline",
+        "secretstorage",
     ],
     entry_points={
         "console_scripts": [

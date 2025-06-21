@@ -91,11 +91,20 @@ pyenv global 3.11.9 #now python python 3.11.9 will be the default now for just t
 # openSUSE
 sudo zypper install python3.11 python3.11-pip git
 
+
+# to creat enviroment if python 3.11 if this didn't succes in all this systems run the next
+
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install . --break-system-packages  # or just `pip install .` if not root
+
 ```
 
 ## Commands
 
 ### add the video
+---
 add the target video path or url to download
 
 ```bash
@@ -109,6 +118,7 @@ textStudy video video-url  --url
 
 
 ## explain
+---
 creates a file (markdown, pdf, or LaTeX) that paraphrase for video content
 
 ```bash

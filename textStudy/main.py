@@ -123,7 +123,8 @@ def downloadVideo(Vlink):
     ydl_opts = {
         'outtmpl': str(temp_path),
         'format': 'bestvideo[height<=480]+bestaudio/best',
-        'merge_output_format': 'mp4'
+        'merge_output_format': 'mp4',
+        "cookiesfrombrowser": ("chrome",),
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -136,7 +137,7 @@ def downloadVideo(Vlink):
     
     path = None
     for file in Vdir.glob(f"*{nowTime}_{uID}*"):
-        if file.is_file() and file.suffix.lower() in ('.mp4' ,'.mkv' , '.avi' ,'.mov'):
+        if file.is_file() and file.suffix.lower() in ('.mp4' ,'.mkv' , '.avi' ,'.mov','webm'):
             path = str(file)
             break
     if path:
@@ -485,10 +486,12 @@ Now generate {Number} {style} questions based on the above text.
 
 app = typer.Typer()
 @app.command()
-def video(Vpath: str, url : bool = typer.Option(False, "--url", "-u",help="Is this a URL?")):
-    global path, Vdir, Vname
+def video(vpath: str = typer.Argument(...,help="Video file path or URL"), url : bool = typer.Option(False, "--url", "-u",help="Is this a URL?")):
+    global path, Vdir, Vname, audioready, textready
+    audioready = False
+    textready = False
     if url :
-        link = Vpath
+        link = vpath
         result = downloadVideo(link)
         if result[0] is None:
             typer.echo("Failed to download video")
@@ -496,7 +499,7 @@ def video(Vpath: str, url : bool = typer.Option(False, "--url", "-u",help="Is th
         Vdir, path, Vname = result
 
     else :
-        path = Vpath
+        path = vpath
         Vdir = os.path.dirname(path)
         Vname = os.path.basename(path)
         typer.echo(f"video set: {Vname}")
@@ -838,7 +841,7 @@ def explain(fileType: str = typer.Option(...,"-t","--type",help ="Output file ma
     paraphrase(transcribtion, usedType,onAPI,API,model,key)
     
 @app.command()
-def questions(number :int= typer.Option(...,"-n","--number", help="number generated questions on the video"), style:str = typer.Option(...,"-s","--style",help = "style of questions from next: multiple choice, true/false, short answer, essay, fill in the blank"), file_type: str = typer.Option(...,"-t","--type",help ="Output file markdown, LaTex, or pdf as you want, and will be saved in same your video directory"),tAPI:bool = typer.Option(False,"-t","--tAPI" ,help="Are you want work with API instead of locally?"),API:str=typer.Option(None,"-a","--api"),model:str=typer.Option(None,"-m","--model"), key:str=typer.Option(None,"-k","--key")):
+def questions(number :int= typer.Option(...,"-n","--number", help="number generated questions on the video"), style:str = typer.Option(...,"-s","--style",help = "style of questions from next: multiple choice, true/false, short answer, essay, fill in the blank"), file_type: str = typer.Option(...,"-t","--type",help ="Output file markdown, LaTex, or pdf as you want, and will be saved in same your video directory"),onAPI:bool = typer.Option(False,"-o","--tAPI" ,help="Are you want work with API instead of locally?"),API:str=typer.Option(None,"-a","--api"),model:str=typer.Option(None,"-m","--model"), key:str=typer.Option(None,"-k","--key")):
     global audioready, textready, Apath, path, Vdir, transcribtion
     usedType = file_type.lower()
     if not path:
@@ -858,7 +861,7 @@ def questions(number :int= typer.Option(...,"-n","--number", help="number genera
     
 
     typer.echo("start preparing questions......")
-    questions(number,transcribtion, usedType,style,tAPI,API,model,key)
+    questions(number,transcribtion, usedType,style,onAPI,API,model,key)
 
 main = app
 if __name__ == '__main__' :
