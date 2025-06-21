@@ -3,7 +3,7 @@ name: Cross-Platform Build and Release
 on:
   push:
     tags:
-      - 'v*'  # Triggers on version tags like v1.0.0, v2.3.1, etc.
+      - 'v*'
 
 permissions:
   contents: write
@@ -31,6 +31,9 @@ jobs:
 
       - name: Build executable
         run: pyinstaller --onefile --noconfirm textStudy/main.py
+
+      - name: Check dist folder
+        run: ls -lah dist
 
       - name: Rename executable
         run: mv dist/main dist/textStudy-linux
@@ -67,6 +70,9 @@ jobs:
       - name: Build executable
         run: pyinstaller --onefile --noconfirm textStudy/main.py
 
+      - name: Check dist folder
+        run: dir dist
+
       - name: Rename executable
         run: Rename-Item -Path dist\main.exe -NewName textStudy-windows.exe
 
@@ -94,10 +100,16 @@ jobs:
           pip install pyinstaller
 
       - name: Install FFmpeg
-        run: brew install ffmpeg
+        run: |
+          brew update || true
+          brew install ffmpeg || true
+        shell: bash
 
       - name: Build executable
         run: pyinstaller --onefile --noconfirm textStudy/main.py
+
+      - name: Check dist folder
+        run: ls -lah dist
 
       - name: Rename executable
         run: mv dist/main dist/textStudy-macos
@@ -140,4 +152,3 @@ jobs:
             release/textStudy-macos
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
