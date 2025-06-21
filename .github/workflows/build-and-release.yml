@@ -26,27 +26,36 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Install FFmpeg
-        run: sudo apt update && sudo apt install -y ffmpeg
+      - name: Install FFmpeg and UPX
+        run: |
+          sudo apt update
+          sudo apt install -y ffmpeg upx
 
-      - name: Build executable (stripped and clean)
-        run: pyinstaller --onefile --noconfirm --strip --clean textStudy/main.py
+      - name: Build executable (stripped, clean, compressed)
+        run: |
+          pyinstaller --onefile --noconfirm --strip --clean textStudy/main.py
+          upx dist/main
 
-      - name: Rename and compress as .tar.gz
+      - name: Rename and compress
         run: |
           mv dist/main dist/textStudy-linux
           tar -czf dist/textStudy-linux.tar.gz -C dist textStudy-linux
 
-      - name: Split archive if > 1 GB
+      - name: Split if > 2 GB
         run: |
-          split -b 1000M dist/textStudy-linux.tar.gz dist/textStudy-linux.tar.gz.part_
+          FILE=dist/textStudy-linux.tar.gz
+          SIZE=$(stat -c%s "$FILE")
+          if [ "$SIZE" -gt 2147483648 ]; then
+            split -b 1000M "$FILE" "${FILE}.part_"
+            rm "$FILE"
+          fi
 
-      - name: Upload split archive parts
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: textStudy-linux
-          path: dist/textStudy-linux.tar.gz.part_*
-
+          path: dist/textStudy-linux.tar.gz*
+          
   build-windows:
     name: Build on Windows
     runs-on: windows-latest
@@ -148,8 +157,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release/textStudy-linux.tar.gz.part_*
+            release/textStudy-linux.tar.gz*
             release/textStudy-windows.zip
             release/textStudy-macos.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
