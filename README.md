@@ -1,8 +1,36 @@
-# **textStudy**
-A study tool for who don't love videos, by converting into text files (markdown, LaTex, or pdf), summarizing, or preparing questions. works on local videos/ videos url
+# **textStudy** - Video Content Analysis Tool
+A study tool for who don't love videos, by converting into educational materials (markdown, LaTex, or pdf), summarizies, or preparing questions. works on local videos/ videos url by Advanced AI models, and APIs
+
 ## Table of Content
+- ### **[Features](#features)**
 - ### **[Installation](#installation)**
 - ### **[Commands](#commands-1)**
+
+
+## 📋 Features
+
+### Core Functions
+1. **Video Processing**: Download and process videos from URLs or local files
+2. **Audio Extraction**: Convert video to audio for transcription
+3. **Transcription**: Generate accurate text transcripts using Whisper
+4. **Subtitles**: Add embedded subtitles to videos
+5. **Summarization**: Create intelligent summaries with configurable ratios
+6. **Educational Content**: Generate comprehensive educational materials
+7. **Assessment Questions**: Create diverse question types for learning
+
+### Output Formats
+- **Markdown**: Well-structured educational content
+- **PDF**: Professional printable documents
+- **LaTeX**: Academic document formatting
+- **Text**: Plain text summaries and transcripts
+
+### Question Types
+- Multiple Choice Questions (MCQ)
+- True/False Questions
+- Short Answer Questions
+- Essay Questions
+- Fill-in-the-Blank Questions
+
 
 ## Installation
 
@@ -50,7 +78,7 @@ run in terminal
 ```
 then
 ```bash
-brew install pyenv git
+brew install pyenv git ffmpeg
 pyenv install 3.11.9
 pyenv local 3.11.9
 
@@ -65,31 +93,18 @@ pip install -e .
 
 ```bash
 # Debian/Ubuntu
-sudo add-apt-repository ppa:deadsnakes/ppa
-sudo apt update
-sudo apt install python3.11 python3.11-venv python3.11-distutils git -y
+sudo apt install python3.11 python3.11-venv python3.11-distutils git ffmpeg -y
 curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11
 
 # Fedora/RHEL/CentOS/Rocky
-sudo dnf install python3.11 python3.11-pip git -y
+sudo dnf install python3.11 python3.11-pip git ffmpeg -y
 
 # Arch/Manjaro Must use pyenv
 sudo pacman -S --needed base-devel git openssl zlib xz tk
 git clone https://github.com/pyenv/pyenv.git ~/.pyenv
-    #next is for bash
-export PYENV_ROOT="$HOME/.pyenv"
-export PATH="$PYENV_ROOT/bin:$PATH"
-eval "$(pyenv init --path)"
-eval "$(pyenv init -)"
-
-    #next for zsh
-exec "$SHELL"
-
-pyenv install 3.11.9
-pyenv global 3.11.9 #now python python 3.11.9 will be the default now for just the enviroment
 
 # openSUSE
-sudo zypper install python3.11 python3.11-pip git
+sudo zypper install python3.11 python3.11-pip git ffmpeg
 
 
 # to creat enviroment if python 3.11 if this didn't succes in all this systems run the next

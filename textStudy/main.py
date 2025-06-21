@@ -11,7 +11,6 @@ import uuid
 from rich.progress import track
 import semantic_text_splitter
 from tokenizers import Tokenizer
-import pipeline
 from transformers import pipeline
 import weasyprint
 import requests
@@ -50,19 +49,18 @@ def set_video_info(path, vdir, vname):
     })
     save_config(config)
 
-# Initialize FFmpeg path properly
+
 def setup_ffmpeg():
     """Setup FFmpeg path for cross-platform compatibility"""
     try:
         ffmpeg_path = get_ffmpeg_exe()
         ffmpeg_dir = os.path.dirname(ffmpeg_path)
         
-        # Add FFmpeg directory to PATH if not already there
+
         current_path = os.environ.get("PATH", "")
         if ffmpeg_dir not in current_path:
             os.environ["PATH"] = ffmpeg_dir + os.pathsep + current_path
         
-        # Set the ffmpeg executable for python-ffmpeg
         ffmpeg._run.DEFAULT_FFMPEG_PATH = ffmpeg_path
         
         return ffmpeg_path
@@ -70,7 +68,7 @@ def setup_ffmpeg():
         typer.echo(f"Error setting up FFmpeg: {e}")
         return None
 
-# Setup FFmpeg on import
+
 ffmpeg_executable = setup_ffmpeg()
 
 audioready = False
@@ -199,7 +197,7 @@ def downloadVideo(Vlink):
 
 
 def video2audio(Vpath, Vdir):
-    """Convert video to audio using cross-platform FFmpeg"""
+
     global audioready
     
     if not ffmpeg_executable:
@@ -209,7 +207,7 @@ def video2audio(Vpath, Vdir):
     Apath = os.path.splitext(Vpath)[0] + ".wav"
     
     try:
-        # Use the specific FFmpeg executable path
+
         stream = ffmpeg.input(Vpath)
         stream = ffmpeg.output(
             stream,
@@ -220,7 +218,6 @@ def video2audio(Vpath, Vdir):
             ar='16000'
         )
         
-        # Run with the specific FFmpeg executable
         ffmpeg.run(stream, cmd=ffmpeg_executable, overwrite_output=True, quiet=True)
         audioready = True
         return Apath
@@ -230,156 +227,264 @@ def video2audio(Vpath, Vdir):
         return None
 
 
-def audio2text(audioPath):
+def audio2text(audioPath, language: str = "auto"):
     global textready, transcribtion
     model = whisper.load_model('base')
     if language == "auto":
         transcribtion = model.transcribe(audioPath)
     else:
-        transcribtion = model.transcribe(audioPath, language = language, task= "translate")
+        transcribtion = model.transcribe(audioPath, language=language, task="translate")
+
+    txt_path = os.path.splitext(audioPath)[0] + ".txt"
+    try:
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(transcribtion["text"].strip())
+    except Exception as e:
+        typer.echo(f"Warning: Could not save transcript: {e}")
+
     textready = True
     return transcribtion
 
 
-def summary(transcribtion: str , ratio : int):
-    cleanText = transcribtion
-    maxTokens = 512
+def summary(transcribtion: str, ratio: int):
+    """Enhanced summary function with better text processing and models"""
+    
+    cleanText = transcribtion.strip()
+    maxTokens = 1024
     summaries = []
-    #modelName = "philschmid/bart-large-cnn-samsum"
-    modelName = "sshleifer/distilbart-cnn-12-6"
-    sumTokenizer = transformers.BartTokenizer.from_pretrained(modelName)
-    model = transformers.BartForConditionalGeneration.from_pretrained(modelName)
+    
+    try:
+        modelName = "facebook/bart-large-cnn"
+        sumTokenizer = transformers.BartTokenizer.from_pretrained(modelName)
+        model = transformers.BartForConditionalGeneration.from_pretrained(modelName)
+    except:
+        modelName = "sshleifer/distilbart-cnn-12-6"
+        sumTokenizer = transformers.BartTokenizer.from_pretrained(modelName)
+        model = transformers.BartForConditionalGeneration.from_pretrained(modelName)
+    
     splitTokenizer = Tokenizer.from_pretrained("bert-base-uncased")
     splitter = semantic_text_splitter.TextSplitter.from_huggingface_tokenizer(splitTokenizer, maxTokens)
     chunks = splitter.chunks(cleanText)
-    cleaner = pipeline("text2text-generation" , model = "google/flan-t5-large")
-
+    
+    try:
+        cleaner = pipeline("text2text-generation", model="google/flan-t5-large")
+    except:
+        cleaner = pipeline("text2text-generation", model="google/flan-t5-base")
+    
+    cleaned_chunks = []
+    
     for chunk in chunks:
-        cleanPrompt = f"Clean this transcript to be good for reading not dialoge or script {chunk}"
-        cleaned = cleaner(cleanPrompt , max_length = 512 , do_sample = False)[0]['generated text']
-        cleanText = []
-        cleanText.append(cleaned)
-
-    for paragraph in cleanText:
+        cleanPrompt = f"Clean and improve this transcript text to be more readable and well-structured: {chunk}"
+        try:
+            cleaned = cleaner(cleanPrompt, max_length=512, do_sample=False)[0]['generated_text']
+            cleaned_chunks.append(cleaned)
+        except:
+            cleaned_chunks.append(chunk)
+    
+    for paragraph in cleaned_chunks:
+        if not paragraph.strip():
+            continue
+            
         wordsNumber = len(paragraph.split())
-        maximumOut = int(wordsNumber/ratio + (((1/ratio)*100)/15))
-        minimumOut = int(wordsNumber/ratio)
-        inputs = sumTokenizer.encode("summarize :" + paragraph, return_tensors = "pt", max_length =512 , truncation = True)
-        summaryIdes = model.generate(inputs , max_length = maximumOut , min_length = minimumOut, length_penalty = 1 , num_beams = 4 , early_stopping = True)
-        Fsummary = sumTokenizer.decode(summaryIdes[0] , skip_special_tokens = True)
-        summaries.append(Fsummary)
-    FFsummary = " ".join(summaries)
-    typer.echo("your summary:\n" + FFsummary)
-    return FFsummary
+        if wordsNumber < 10:
+            continue
+            
+        maximumOut = min(150, max(50, int(wordsNumber / ratio)))
+        minimumOut = max(20, int(wordsNumber / (ratio * 2)))
+        
+        summary_prompt = f"Summarize the following text concisely while preserving key information: {paragraph}"
+        
+        try:
+            inputs = sumTokenizer.encode(summary_prompt, return_tensors="pt", max_length=512, truncation=True)
+            summaryIds = model.generate(
+                inputs, 
+                max_length=maximumOut, 
+                min_length=minimumOut, 
+                length_penalty=1.0, 
+                num_beams=4, 
+                early_stopping=True,
+                temperature=0.7
+            )
+            Fsummary = sumTokenizer.decode(summaryIds[0], skip_special_tokens=True)
+            summaries.append(Fsummary)
+        except Exception as e:
+            typer.echo(f"Warning: Error summarizing chunk: {e}")
+            sentences = paragraph.split('.')
+            fallback_summary = '. '.join(sentences[:2]) + '.'
+            summaries.append(fallback_summary)
+    
+    if summaries:
+        FFsummary = "\n\n".join(summaries)
+        typer.echo("Your summary:\n" + "="*50 + "\n" + FFsummary + "\n" + "="*50)
+        return FFsummary
+    else:
+        typer.echo("No summary could be generated.")
+        return ""
 
 def paraphrase(transcribtion:str, fileType, tAPI: bool= False, API:str = None, apiModel:str = None, apiKey:str =None):
+    """Enhanced paraphrase function with better prompts and processing for educational content"""
+    
     if fileType == "pdf":
-        fftype ="plain text formatted for printable PDF."
+        fftype = "plain text formatted for printable PDF with clear sections and professional formatting."
     elif fileType == "markdown":
         fftype = """
-- Format output in **Markdown**.
-- Start each chunk with: `## {Section name}{n}`"""
+- Format output in **Markdown** with proper structure
+- Use ## for main sections and ### for subsections
+- Include bullet points and numbered lists where appropriate
+- Use **bold** for emphasis and `code` for technical terms
+- Create a table of contents if the content is long"""
     elif fileType == "latex":
         fftype = """
-- Format output in **LaTeX**.
-- Start each section with: `\\section*{name}`
-- Use `\begin{enumerate}` for paragraph."""
+- Format output in **LaTeX** with proper document structure
+- Use \\section*{name} for main sections and \\subsection*{name} for subsections
+- Use \\begin{enumerate} for numbered lists and \\begin{itemize} for bullet points
+- Include \\begin{verbatim} for code blocks
+- Use proper LaTeX formatting for mathematical expressions"""
 
-    maxTokens = 820
+    maxTokens = 2048
     
     if tAPI:
-        chunks = textwrap.wrap(transcribtion, width = 1500,break_long_words=False)
+        chunks = textwrap.wrap(transcribtion, width=3000, break_long_words=False, break_on_hyphens=False)
     else:
         splitTokenizer = Tokenizer.from_pretrained("bert-base-uncased")
         splitter = semantic_text_splitter.TextSplitter.from_huggingface_tokenizer(splitTokenizer, maxTokens)
         chunks = splitter.chunks(transcribtion)
+    
     Fchunks = []
+    
+    base_prompt = f"""You are an expert educational content creator with deep knowledge in multiple subjects. Your task is to transform a video transcript into comprehensive, well-structured educational content.
 
-    for chunk in chunks:
-        prompt = f"""
-You are an educational content assistant.
+IMPORTANT REQUIREMENTS:
+1. Maintain ALL the original information and concepts from the transcript
+2. Organize content logically with clear sections and subsections
+3. Add educational value through explanations, examples, and context
+4. Use professional, academic writing style
+5. Ensure the content is suitable for students and learners
+6. Include key takeaways and important points
+7. Make complex concepts accessible and understandable
 
-Rewrite the following video transcript chunk to create an engaging and stuctured explaination file.
+CONTENT STRUCTURE GUIDELINES:
+- Start with a brief introduction or overview
+- Organize content into logical sections
+- Use clear headings and subheadings
+- Include bullet points for key concepts
+- Add numbered lists for step-by-step processes
+- Highlight important terms and definitions
+- Include examples where appropriate
+- End with a summary or conclusion
 
-Adapt your writing style based on the type of video content
-- For Science or technical topics: use clear headings, bullet points, and explainations.
-- For grammer or language: explain rules, give examples, and highlight structure.
-- For math or physics problem solving: present the explaination step by step with labled equations and reasoning.
-- For computer Science: explain the base and topics, with code blocks
+FORMAT REQUIREMENTS:
+{fftype}
 
-Format the result like educational notes or articles with a clear titles,structured sections, and coherent flow.
-with {fileType} format that {fftype}
-transcribt:
+ORIGINAL TRANSCRIPT:
 \"\"\"
-{chunk}
+{{chunk}}
 \"\"\"
-"""
+
+Create comprehensive educational content that covers ALL the material from the transcript while making it more structured, clear, and educational."""
+
+    for i, chunk in enumerate(chunks):
+        context_info = f"\n\n[This is part {i+1} of {len(chunks)} from the complete transcript]"
+        prompt = base_prompt.format(chunk=chunk + context_info)
+        
         if tAPI:
-            if API.lower == "huggingface":
-                headers = {"Authorization":f"Bearer {apiKey}"}
-                url = f"https://api-interface.huggingface.co/models/{apiModel}"
-                response = requests.post(url, headers=headers, json={"inputs":prompt})
-                text = response.json()
-                result = text[0]['generated_text'] if isinstance(text,list) else text.get("generated_text","")
+            try:
+                if API.lower() == "huggingface":
+                    headers = {"Authorization": f"Bearer {apiKey}"}
+                    url = f"https://api-inference.huggingface.co/models/{apiModel}"
+                    response = requests.post(url, headers=headers, json={"inputs": prompt})
+                    text = response.json()
+                    result = text[0]['generated_text'] if isinstance(text, list) else text.get("generated_text", "")
 
-            elif API.lower =="cohere":
-                headers = {"Authorization":f"Bearer {apiKey}"}
-                url = "https://api.cohere.ai/generate"
-                payload = {"model":apiModel, "prompt": prompt, "max_tokens":800, "temperature":0.7}
-                response = requests.post(url , headers=headers, json=payload)
-                result = response.json()['generations'][0]['text']
+                elif API.lower() == "cohere":
+                    headers = {"Authorization": f"Bearer {apiKey}"}
+                    url = "https://api.cohere.ai/generate"
+                    payload = {
+                        "model": apiModel, 
+                        "prompt": prompt, 
+                        "max_tokens": 1500, 
+                        "temperature": 0.3,
+                        "k": 0,
+                        "stop_sequences": [],
+                        "return_likelihoods": "NONE"
+                    }
+                    response = requests.post(url, headers=headers, json=payload)
+                    result = response.json()['generations'][0]['text']
 
-            elif API.lower =="replicate":
-                headers = {"Authorization":f"Token {apiKey}", "Content-Type":"application/json"}
-                url = "https://api.replicate.com/v1/predictions"
-                payload = {"model":apiModel, "input":{"prompt": prompt}}
-                response = requests.post(url, headers= headers, json= payload)
-                prediction = response.json()
-                result =prediction.get("output", "[replicate pending...]")
-            
-            elif API.lower =="groq":
-                headers = {"Autorization":f"Bearer {apiKey}"}
-                url = "https://api.groq.com/openai/v1/chat/completions"
-                payload = {"model":apiModel, "messages":[{"role":"user", "content": prompt}]}
-                response = requests.post(url ,  headers= headers, json=payload)
-                result= response.json()['choices'][0]['message']['content']
+                elif API.lower() == "replicate":
+                    headers = {"Authorization": f"Token {apiKey}", "Content-Type": "application/json"}
+                    url = "https://api.replicate.com/v1/predictions"
+                    payload = {"version": apiModel, "input": {"prompt": prompt}}
+                    response = requests.post(url, headers=headers, json=payload)
+                    prediction = response.json()
+                    result = prediction.get("output", "[replicate pending...]")
+                
+                elif API.lower() == "groq":
+                    headers = {"Authorization": f"Bearer {apiKey}"}
+                    url = "https://api.groq.com/openai/v1/chat/completions"
+                    payload = {
+                        "model": apiModel, 
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.3,
+                        "max_tokens": 2000
+                    }
+                    response = requests.post(url, headers=headers, json=payload)
+                    result = response.json()['choices'][0]['message']['content']
 
-            elif API.lower == "ollama":
-                url = "https://localhost:11434/api/generate"
-                payload = {"model": apiModel,"prompt": prompt}
-                response = requests.post(url, json= payload, stream=True)
-                chunks = []
-                for i in response.iter_lines():
-                    if i:
-                        part = json.loads(i.decode("utf-8"))
-                        chunks.append(part.get("response",""))
-                result = "".join(chunks)
+                elif API.lower() == "ollama":
+                    url = "http://localhost:11434/api/generate"
+                    payload = {"model": apiModel, "prompt": prompt}
+                    response = requests.post(url, json=payload, stream=True)
+                    chunks_response = []
+                    for line in response.iter_lines():
+                        if line:
+                            part = json.loads(line.decode("utf-8"))
+                            chunks_response.append(part.get("response", ""))
+                    result = "".join(chunks_response)
 
-            elif API.lower == "gemini":
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{apiModel}:generateContent?key={apiKey}"
-                headers = {"content-type": "application/json"}
-                payload = {"contents":[{"parts":[{"text":prompt}]}]}
-                response = requests.post(url, headers=headers, json=payload)
-                result =response.json()["candidates"][0]["content"]["parts"][0]["text"]
-            
-            else: 
-                raise ValueError(f"API '{API}' is not supported, true inputs, or free, or reached free-limit")
-            Fchunks.append(result.strip())
+                elif API.lower() == "gemini":
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{apiModel}:generateContent?key={apiKey}"
+                    headers = {"Content-Type": "application/json"}
+                    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+                    response = requests.post(url, headers=headers, json=payload)
+                    result = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+                
+                else: 
+                    raise ValueError(f"API '{API}' is not supported. Please check your API configuration.")
+                
+                Fchunks.append(result.strip())
+                
+            except Exception as e:
+                typer.echo(f"Error with API call: {e}")
+                tokenizer = transformers.AutoTokenizer.from_pretrained("google/flan-t5-large")
+                model = transformers.AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-large")
+                inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
+                output = model.generate(**inputs, max_new_tokens=1024, temperature=0.3)
+                decoded = tokenizer.decode(output[0], skip_special_tokens=True)
+                Fchunks.append(decoded.strip())
         else:
-            tokenizer = transformers.AutoTokenizer.from_pretrained("google/flan-t5-large")
-            model = transformers.AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-large")
-            inputs = tokenizer(prompt, return_tensors = "pt" , truncation = True)
-            output = model.generate(**inputs,max_new_tokens = 1024)
-            decoded = tokenizer.decode(output[0])
+            try:
+                model_name = "google/flan-t5-xl"
+                tokenizer = transformers.AutoTokenizer.from_pretrained(model_name)
+                model = transformers.AutoModelForSeq2SeqLM.from_pretrained(model_name)
+            except:
+                tokenizer = transformers.AutoTokenizer.from_pretrained("google/flan-t5-large")
+                model = transformers.AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-large")
+            
+            inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
+            output = model.generate(**inputs, max_new_tokens=1024, temperature=0.3, do_sample=True)
+            decoded = tokenizer.decode(output[0], skip_special_tokens=True)
             Fchunks.append(decoded.strip())
 
-    Fparaphresed = "\n\n".join(Fchunks)
+    Fparaphresed = "\n\n" + "="*50 + "\n\n".join(Fchunks) + "\n\n" + "="*50
+    
     if fileType == "pdf":
         pdf(Fparaphresed, "_paraphrased")
     elif fileType == "markdown":
         markDown(Fparaphresed, "_paraphrased")
     elif fileType == "latex":
         LaTeX(Fparaphresed, "_paraphrased")
+    
     return Fparaphresed
 
 
@@ -389,223 +494,314 @@ def transcription(audio, language:str = "auto"):
         typer.echo("FFmpeg not available for subtitle generation.")
         return
         
-    # Create a temporary file with a safe filename
-    from tempfile import NamedTemporaryFile
-    
-    # First create a temporary MP4 file
-    with NamedTemporaryFile(suffix='.mp4', delete=False) as temp_mp4:
-        temp_mp4_path = temp_mp4.name
-        
-        # Copy the audio file to the temporary MP4 file
-        try:
-            import shutil
-            shutil.copy2(audio, temp_mp4_path)
-        except Exception as e:
-            typer.echo(f"Error creating temporary MP4 file: {e}")
-            return
+    global path, Vdir, Vname
+    if not path or not os.path.exists(path):
+        typer.echo("Video path not found. Please set a video first.")
+        return
 
     try:
-        # Convert MP4 to WAV using ffmpeg
-        # Create a safer filename without special characters
-        temp_wav_name = f"temp_audio_{uuid.uuid4().hex[:8]}.wav"
-        temp_wav_path = os.path.join(os.path.dirname(temp_mp4_path), temp_wav_name)
-        
-        try:
-            stream = ffmpeg.input(temp_mp4_path)
-            stream = ffmpeg.output(
-                stream,
-                temp_wav_path,
-                format='wav',
-                acodec='pcm_s16le',
-                ac=1,
-                ar='16000'
-            )
-            ffmpeg.run(stream, cmd=ffmpeg_executable, overwrite_output=True)
-        except Exception as e:
-            typer.echo(f"Error converting MP4 to WAV: {e}")
-            return
-
-        # Now use the WAV file for transcription
         model = whisper.load_model('base')
         if language == "auto":
-            transcribtion = model.transcribe(temp_wav_path)
+            transcribtion = model.transcribe(audio)
         else:
-            transcribtion = model.transcribe(temp_wav_path, language = language, task = "translate")
+            transcribtion = model.transcribe(audio, language=language, task="translate")
         
         filePath = os.path.join(Vdir, "subtitle.srt")
         segments = transcribtion["segments"]
 
-        # Create subtitle file
-        with open(filePath , 'w' , encoding='utf-8') as srtFile:
+        with open(filePath, 'w', encoding='utf-8') as srtFile:
             for segment in segments:
-                sTime = str(0)+str(timedelta(seconds=int(segment['start'])))+',000'
-                fTime = str(0)+str(timedelta(seconds=int(segment['end']))) +',000'
-                text = segment['text']
-                subtitleSeg = f"{segment['id']+1}\n{sTime} --> {fTime}\n{text}\n\n"
+
+                start_time = str(timedelta(seconds=int(segment['start']))) + ',000'
+                end_time = str(timedelta(seconds=int(segment['end']))) + ',000'
+                text = segment['text'].strip()
+                
+                subtitleSeg = f"{segment['id']+1}\n{start_time} --> {end_time}\n{text}\n\n"
                 srtFile.write(subtitleSeg)
 
-        # Generate output filename
-        baseName , extention = os.path.splitext(Vname)
+        baseName, extention = os.path.splitext(Vname)
         output = os.path.join(Vdir, baseName + "_with_subtitles" + extention)
         
         try:
             stream = ffmpeg.input(path)
-            stream = ffmpeg.filter(stream, 'subtitles', f"filename={filePath}")
-            stream = ffmpeg.output(stream, output, **{"c:v": "libx264", "c:a": "copy"})
-            ffmpeg.run(stream, cmd=ffmpeg_executable, overwrite_output=True)
-            typer.echo(f"video with subtitles saved as: {output}")
-        except Exception as e:
-            typer.echo(f"Error adding subtitles: {e}")
             
-    finally:
-        # Clean up temporary files
-        try:
-            if os.path.exists(temp_mp4_path):
-                os.unlink(temp_mp4_path)
-            if os.path.exists(temp_wav_path):
-                os.unlink(temp_wav_path)
+            subtitle_path = filePath.replace('\\', '/').replace(':', '\\:')
+            stream = ffmpeg.filter(stream, 'subtitles', subtitle_path)
+            
+
+            stream = ffmpeg.output(
+                stream, 
+                output, 
+                vcodec='libx264',
+                acodec='copy',
+                preset='medium',
+                crf=23
+            )
+            
+            ffmpeg.run(stream, cmd=ffmpeg_executable, overwrite_output=True, quiet=True)
+            typer.echo(f"✅ Video with subtitles saved as: {output}")
+            
         except Exception as e:
-            typer.echo(f"Warning: Failed to delete temporary files: {e}")
+            typer.echo(f"❌ Error burning subtitles: {e}")
+            typer.echo("Subtitle file created but could not be burned into video.")
+            typer.echo(f"Subtitle file location: {filePath}")
+            
+    except Exception as e:
+        typer.echo(f"❌ Error in transcription process: {e}")
+        return
 
 
-def questions(numberQuestions ,transcribtion ,fileType, style:str = "mcq", tAPI: bool= False, API:str =None,apiModel:str=None,apiKey:str=None):
-    def questionsPrompt(chunk:str, style:str ,Number : int):
-        return f""" You are an intelligent quesions generator.
+def questions(numberQuestions, transcribtion, fileType, style: str = "mcq", tAPI: bool = False, API: str = None, apiModel: str = None, apiKey: str = None):
+    """Enhanced questions function with better prompts and intelligent question distribution"""
+    
+    def questionsPrompt(chunk: str, style: str, Number: int, chunk_info: str):
 
-Analys the following text and generate {Number} {style} questions that cover the key ideas, facts, and reasoning presented.
+        style_instructions = {
+            "multiple choice": f"""
+- Create {Number} multiple choice questions with 4 options (A, B, C, D)
+- Each question should have only ONE correct answer
+- Make distractors plausible but clearly incorrect
+- Include a mix of factual, conceptual, and application questions
+- Ensure questions test different levels of understanding""",
+            
+            "true/false": f"""
+- Create {Number} true/false questions
+- Ensure a balanced mix of true and false statements
+- Make false statements plausible but clearly incorrect
+- Focus on key concepts and important facts
+- Avoid ambiguous or unclear statements""",
+            
+            "short answer": f"""
+- Create {Number} short answer questions
+- Questions should require 1-3 sentences to answer
+- Focus on key concepts, definitions, and important facts
+- Ask for explanations, examples, or brief analyses
+- Ensure questions are specific and clear""",
+            
+            "essay": f"""
+- Create {Number} essay questions
+- Questions should require detailed explanations (2-4 paragraphs)
+- Focus on analysis, synthesis, and critical thinking
+- Ask for comparisons, evaluations, or comprehensive explanations
+- Include clear instructions on what to address""",
+            
+            "fill in the blank": f"""
+- Create {Number} fill-in-the-blank questions
+- Provide clear context for each blank
+- Ensure there is only one correct answer
+- Focus on key terms, concepts, and important facts
+- Make the context sufficient to determine the answer"""
+        }
+        
+        style_instruction = style_instructions.get(style.lower(), style_instructions["multiple choice"])
+        
+        return f"""You are an expert educational assessment creator with deep knowledge in creating high-quality questions that effectively test understanding.
 
-Be sure the quesions cover the full content of the passage and assess undersainding fairly.
+TASK: Analyze the following text and generate {Number} {style} questions that comprehensively assess the key concepts, facts, and reasoning presented.
 
-Text
+QUALITY REQUIREMENTS:
+1. Questions must be clear, unambiguous, and well-written
+2. Each question should test a different aspect of the content
+3. Questions should range from basic recall to higher-order thinking
+4. Ensure questions cover the most important concepts from the text
+5. Make questions engaging and educational
+6. Avoid trivial or overly simple questions
+7. Ensure questions are appropriate for the content level
+
+CONTENT ANALYSIS:
+- Identify the main topics and key concepts
+- Note important facts, definitions, and relationships
+- Consider cause-and-effect relationships
+- Look for examples, applications, and implications
+- Identify potential misconceptions or challenging areas
+
+{style_instruction}
+
+ORIGINAL TEXT:
 \"\"\"
 {chunk}
 \"\"\"
 
-Now generate {Number} {style} questions based on the above text.
+{chunk_info}
 
-{explainfileType}
-"""
+Generate {Number} high-quality {style} questions that thoroughly test understanding of this content."""
+
     if tAPI:
-        chunks = textwrap.wrap(transcribtion, width = 1500, break_long_words=False)
+        chunks = textwrap.wrap(transcribtion, width=2500, break_long_words=False, break_on_hyphens=False)
     else:
         tokenizer = transformers.AutoTokenizer.from_pretrained("bert-base-uncased")
-        splitter = semantic_text_splitter.TextSplitter.from_huggingface_tokenizer(tokenizer, max_tokens = 1024)
+        splitter = semantic_text_splitter.TextSplitter.from_huggingface_tokenizer(tokenizer, max_tokens=2048)
         chunks = splitter.chunks(transcribtion)
-    Ftokenizer = transformers.AutoTokenizer.from_pretrained("google/flan-t5-large")
-    model = transformers.AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-large")
-    chunkNtokens = [len(tokenizer.encode(chunk))for chunk in chunks]
-    TotalNtokens = sum(chunkNtokens) 
-    quesionsForChunk = []
-    connections = []
+    
+
+    chunk_scores = []
+    for chunk in chunks:
+        words = chunk.split()
+        unique_words = len(set(words))
+        score = len(words) * 0.3 + unique_words * 0.7
+        chunk_scores.append(score)
+    
+    total_score = sum(chunk_scores)
+    questions_per_chunk = []
+    
+    for score in chunk_scores:
+        if total_score > 0:
+            questions = max(1, round((score / total_score) * numberQuestions))
+            questions_per_chunk.append(questions)
+        else:
+            questions_per_chunk.append(1)
+    
+    while sum(questions_per_chunk) > numberQuestions:
+        max_idx = questions_per_chunk.index(max(questions_per_chunk))
+        questions_per_chunk[max_idx] -= 1
+    
+    while sum(questions_per_chunk) < numberQuestions:
+        min_idx = questions_per_chunk.index(min(questions_per_chunk))
+        questions_per_chunk[min_idx] += 1
+    
     if fileType == "markdown":
         explainfileType = """
-- Format question in **markdwon**.
-- start each chunk with: ##section
-- Use bold for question numbers: `**1.**`
-- For MCQ if question are MCQ list options using `- A)`,`- B)` ,etc.
-"""
+- Format questions in **Markdown**
+- Use ## for section headers
+- Use **bold** for question numbers: **1.**
+- For multiple choice, use:
+  - A) Option A
+  - B) Option B
+  - C) Option C
+  - D) Option D
+- Use bullet points for lists
+- Include answer key at the end"""
     elif fileType == "pdf":
         explainfileType = """
-- Write in plain text formatted for printable PDF.
-- Start each section with: `Section: Questions`
-- Use numbered questions and A), B), C)... for MCQs.
-"""
+- Write in plain text formatted for printable PDF
+- Use clear section headers
+- Number questions sequentially
+- For multiple choice, use A), B), C), D) format
+- Include answer key at the end
+- Use proper spacing and formatting"""
     elif fileType == "latex":
-        explainfileType =r"""
-- Format output in **LaTeX**.
-- Start each section with: `\section*{Questions}`
-- Use `\begin{enumerate}` for questions.
-- Use `\item` for each question, and if MCQ, embed options using `\begin{itemize} \item A... \end{itemize}`
-"""
+        explainfileType = r"""
+- Format output in **LaTeX**
+- Use \section*{Questions} for headers
+- Use \begin{enumerate} for numbered questions
+- For multiple choice, use:
+  \begin{itemize}
+  \item[A)] Option A
+  \item[B)] Option B
+  \item[C)] Option C
+  \item[D)] Option D
+  \end{itemize}
+- Include answer key at the end"""
     else:
-        typer.echo("unavailable file type. choose from: markdown, pdf, latex", fg = "darkred")
+        typer.echo("Unavailable file type. Choose from: markdown, pdf, latex", fg="red")
         return None
-
-    for tokens in chunkNtokens:
-        quesions = max(1, round((tokens / TotalNtokens)* numberQuestions))
-        quesionsForChunk.append(quesions)
-
-    while sum(quesionsForChunk) > numberQuestions:
-        maxIdx = quesionsForChunk.index(max(quesionsForChunk))
-        quesionsForChunk[maxIdx] -= 1
-    while sum(quesionsForChunk) < numberQuestions:
-        minIdx = quesionsForChunk.index(min(quesionsForChunk))
-        quesionsForChunk[minIdx] += 1
     
-    for chunkI, questionsN in zip(chunks, quesionsForChunk):
-        prompt = questionsPrompt(chunkI , style , questionsN)
+    connections = []
+    
+    for i, (chunk, questionsN) in enumerate(zip(chunks, questions_per_chunk)):
+        if questionsN <= 0:
+            continue
+            
+        chunk_info = f"[Content from section {i+1} of {len(chunks)}]"
+        prompt = questionsPrompt(chunk, style, questionsN, chunk_info)
+        
         if tAPI:
-            API = API.lower()
+            try:
+                if API.lower() == "huggingface":
+                    headers = {"Authorization": f"Bearer {apiKey}"}
+                    url = f"https://api-inference.huggingface.co/models/{apiModel}"
+                    response = requests.post(url, headers=headers, json={"inputs": prompt})
+                    result = response.json()
+                    decoded = result[0]['generated_text'] if isinstance(result, list) else result.get("generated_text", "")
 
-            if API == "huggingface":
-                headers = {"Authorization": f"Bearer {apiKey}"}
-                url = f"https://api-inference.huggingface.co/models/{apiModel}"
-                response = requests.post(url, headers=headers, json={"inputs": prompt})
-                result = response.json()
-                decoded = result[0]['generated_text'] if isinstance(result, list) else result.get("generated_text", "")
+                elif API.lower() == "cohere":
+                    headers = {"Authorization": f"Bearer {apiKey}", "Content-Type": "application/json"}
+                    url = "https://api.cohere.ai/generate"
+                    payload = {
+                        "model": apiModel,
+                        "prompt": prompt,
+                        "max_tokens": 1200,
+                        "temperature": 0.3,
+                        "k": 0,
+                        "stop_sequences": [],
+                        "return_likelihoods": "NONE"
+                    }
+                    response = requests.post(url, headers=headers, json=payload)
+                    decoded = response.json()['generations'][0]['text']
 
-            elif API == "cohere":
-                headers = {"Authorization": f"Bearer {apiKey}", "Content-Type": "application/json"}
-                url = "https://api.cohere.ai/generate"
-                payload = {
-                    "model": apiModel,
-                    "prompt": prompt,
-                    "max_tokens": 800,
-                    "temperature": 0.7
-                }
-                response = requests.post(url, headers=headers, json=payload)
-                decoded = response.json()['generations'][0]['text']
+                elif API.lower() == "replicate":
+                    headers = {"Authorization": f"Token {apiKey}", "Content-Type": "application/json"}
+                    url = "https://api.replicate.com/v1/predictions"
+                    payload = {
+                        "version": apiModel,
+                        "input": {"prompt": prompt}
+                    }
+                    response = requests.post(url, headers=headers, json=payload)
+                    result = response.json()
+                    decoded = result.get("output", "[replicate pending...]")
 
-            elif API == "replicate":
-                headers = {"Authorization": f"Token {apiKey}", "Content-Type": "application/json"}
-                url = "https://api.replicate.com/v1/predictions"
-                payload = {
-                    "version": apiModel,
-                    "input": {"prompt": prompt}
-                }
-                response = requests.post(url, headers=headers, json=payload)
-                result = response.json()
-                decoded = result.get("output", "[replicate pending...]")
+                elif API.lower() == "groq":
+                    headers = {"Authorization": f"Bearer {apiKey}"}
+                    url = "https://api.groq.com/openai/v1/chat/completions"
+                    payload = {
+                        "model": apiModel,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.3,
+                        "max_tokens": 1500
+                    }
+                    response = requests.post(url, headers=headers, json=payload)
+                    decoded = response.json()['choices'][0]['message']['content']
 
-            elif API == "groq":
-                headers = {"Authorization": f"Bearer {apiKey}"}
-                url = "https://api.groq.com/openai/v1/chat/completions"
-                payload = {
-                    "model": apiModel,
-                    "messages": [{"role": "user", "content": prompt}]
-                }
-                response = requests.post(url, headers=headers, json=payload)
-                decoded = response.json()['choices'][0]['message']['content']
+                elif API.lower() == "ollama":
+                    url = "http://localhost:11434/api/generate"
+                    payload = {"model": apiModel, "prompt": prompt}
+                    response = requests.post(url, json=payload, stream=True)
+                    parts = [json.loads(line.decode())['response'] for line in response.iter_lines() if line]
+                    decoded = "".join(parts)
 
-            elif API == "ollama":
-                url = "http://localhost:11434/api/generate"
-                payload = {"model": apiModel, "prompt": prompt}
-                response = requests.post(url, json=payload, stream=True)
-                parts = [json.loads(line.decode())['response'] for line in response.iter_lines() if line]
-                decoded = "".join(parts)
+                elif API.lower() == "gemini":
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{apiModel}:generateContent?key={apiKey}"
+                    headers = {"Content-Type": "application/json"}
+                    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+                    response = requests.post(url, headers=headers, json=payload)
+                    decoded = response.json()["candidates"][0]["content"]["parts"][0]["text"]
 
-            elif API == "gemini":
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{apiModel}:generateContent?key={apiKey}"
-                headers = {"Content-Type": "application/json"}
-                payload = {"contents": [{"parts": [{"text": prompt}]}]}
-                response = requests.post(url, headers=headers, json=payload)
-                decoded = response.json()["candidates"][0]["content"]["parts"][0]["text"]
-
-            else:
-                raise ValueError(f"API '{API}' is not supported or free.")
+                else:
+                    raise ValueError(f"API '{API}' is not supported. Please check your API configuration.")
+                
+                connections.append(decoded.strip())
+                
+            except Exception as e:
+                typer.echo(f"Error with API call: {e}")
+                Ftokenizer = transformers.AutoTokenizer.from_pretrained("google/flan-t5-large")
+                model = transformers.AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-large")
+                inputs = Ftokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
+                outputs = model.generate(**inputs, max_new_tokens=1024, temperature=0.3)
+                decoded = Ftokenizer.decode(outputs[0], skip_special_tokens=True)
+                connections.append(decoded.strip())
         else:
-            inputs = Ftokenizer(prompt, return_tensors = "pt", truncation = True)
-            outputs = model.generate(**inputs, max_new_tokens = 1024)
+            try:
+                model_name = "google/flan-t5-xl"
+                Ftokenizer = transformers.AutoTokenizer.from_pretrained(model_name)
+                model = transformers.AutoModelForSeq2SeqLM.from_pretrained(model_name)
+            except:
+                Ftokenizer = transformers.AutoTokenizer.from_pretrained("google/flan-t5-large")
+                model = transformers.AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-large")
+            
+            inputs = Ftokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
+            outputs = model.generate(**inputs, max_new_tokens=1024, temperature=0.3, do_sample=True)
             decoded = Ftokenizer.decode(outputs[0], skip_special_tokens=True)
-        connections.append(decoded.strip())
+            connections.append(decoded.strip())
     
-    FfQuestions = "\n\n".join(connections)
+    FfQuestions = "\n\n" + "="*50 + "\n\n".join(connections) + "\n\n" + "="*50
+    
     if fileType == "latex":
         LaTeX(FfQuestions, "_questions")
     elif fileType == "pdf":
         pdf(FfQuestions, "_questions")
     elif fileType == "markdown":
         markDown(FfQuestions, "_questions")
+    
     return FfQuestions
 
 app = typer.Typer()
@@ -776,21 +972,51 @@ Yoruba	yo
 Zulu	zu
 """)):
     path, Vdir, Vname = get_video_info()
+    
     globals()["path"], globals()["Vdir"], globals()["Vname"] = path, Vdir, Vname
+    
     if not path or not os.path.exists(path):
-        typer.echo("Please set a video first using 'textStudy video <path>' or the video file doesn't exist")
+        typer.echo("❌ Please set a video first using 'textStudy video <path>' or the video file doesn't exist")
         return
     
     Apath = os.path.splitext(path)[0] + ".wav"
     if not os.path.exists(Apath):
-        typer.echo("start converting to audio......")
-        Apath = video2audio(path , Vdir)
+        typer.echo("🔄 Converting video to audio...")
+        Apath = video2audio(path, Vdir)
         if not Apath:
+            typer.echo("❌ Failed to convert video to audio")
+            return
+    else:
+        typer.echo("✅ Using existing audio file")
+
+    subtitle_file = os.path.join(Vdir, "subtitle.srt")
+    if os.path.exists(subtitle_file):
+        typer.echo("✅ Subtitle file already exists, proceeding to burn into video...")
+        try:
+            baseName, extention = os.path.splitext(Vname)
+            output = os.path.join(Vdir, baseName + "_with_subtitles" + extention)
+            
+            stream = ffmpeg.input(path)
+            subtitle_path = subtitle_file.replace('\\', '/').replace(':', '\\:')
+            stream = ffmpeg.filter(stream, 'subtitles', subtitle_path)
+            stream = ffmpeg.output(
+                stream, 
+                output, 
+                vcodec='libx264',
+                acodec='copy',
+                preset='medium',
+                crf=23
+            )
+            ffmpeg.run(stream, cmd=ffmpeg_executable, overwrite_output=True, quiet=True)
+            typer.echo(f"✅ Video with subtitles saved as: {output}")
+            return
+        except Exception as e:
+            typer.echo(f"❌ Error burning existing subtitles: {e}")
             return
 
-    typer.echo("start creating subtitles file......")
+    typer.echo("🔄 Creating subtitles and burning into video...")
     transcription(Apath, lang)
-    typer.echo("video ready with subtitles......")
+    typer.echo("✅ Video ready with subtitles!")
 
 @app.command()
 def summarize(ratio : int = typer.Option(6, "--ratio", "-r", help="How much the summary smaller than original text"),lang : str =typer.Option("auto" , "--lang","-l",help ="""language is auto the orginal for translate use ISO 639-1 language code
@@ -948,9 +1174,12 @@ Zulu	zu
     trpath = os.path.splitext(path)[0] + ".txt"
     if not os.path.exists(trpath):
         typer.echo("start transcribing......")
-        transcription_result = audio2text(Apath)
+        transcription_result = audio2text(Apath, lang)
         if not transcription_result:
             return
+    else:
+        with open(trpath, "r", encoding="utf-8") as f:
+            transcription_result = {"text": f.read()}
 
     typer.echo("start summarizing......")
     summary(transcription_result['text'] , ratio)
@@ -976,6 +1205,10 @@ def explain(fileType: str = typer.Option(...,"-t","--type",help ="Output file ma
         transcription_result = audio2text(Apath)
         if not transcription_result:
             return
+    else:
+        typer.echo("using existing transcription file......")
+        with open(trpath, "r", encoding="utf-8") as f:
+            transcription_result = {"text": f.read()}
 
     typer.echo("start paraphrasing......")
     paraphrase(transcription_result['text'], usedType,onAPI,API,model,key)
@@ -997,14 +1230,16 @@ def questions(number :int= typer.Option(...,"-n","--number", help="number genera
         if not Apath:
             return
 
-    
     trpath = os.path.splitext(path)[0] + ".txt"
     if not os.path.exists(trpath):
         typer.echo("start transcribing......")
         transcription_result = audio2text(Apath)
         if not transcription_result:
             return
-    
+    else:
+        typer.echo("using existing transcription file......")
+        with open(trpath, "r", encoding="utf-8") as f:
+            transcription_result = {"text": f.read()}
 
     typer.echo("start preparing questions......")
     questions(number, transcription_result['text'], usedType,style,onAPI,API,model,key)

@@ -45,12 +45,11 @@ setup(
         "tokenizers",
         "weasyprint",
         "requests",
-        "pipeline",
         "secretstorage",
     ],
     entry_points={
         "console_scripts": [
-            "textStudy=textStudy.main:main",
+            "textStudy=textStudy.import_typer:main",
         ],
     },
     include_package_data=True,
