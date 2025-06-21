@@ -3,7 +3,7 @@ name: Cross-Platform Build and Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*'  # Trigger on version tags like v1.0.0
 
 permissions:
   contents: write
@@ -32,17 +32,16 @@ jobs:
       - name: Build executable
         run: pyinstaller --onefile --noconfirm textStudy/main.py
 
-      - name: Check dist folder
-        run: ls -lah dist
-
-      - name: Rename executable
-        run: mv dist/main dist/textStudy-linux
+      - name: Rename and compress executable
+        run: |
+          mv dist/main dist/textStudy-linux
+          zip dist/textStudy-linux.zip dist/textStudy-linux
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: textStudy-linux
-          path: dist/textStudy-linux
+          path: dist/textStudy-linux.zip
 
   build-windows:
     name: Build on Windows
@@ -70,17 +69,16 @@ jobs:
       - name: Build executable
         run: pyinstaller --onefile --noconfirm textStudy/main.py
 
-      - name: Check dist folder
-        run: dir dist
-
-      - name: Rename executable
-        run: Rename-Item -Path dist\main.exe -NewName textStudy-windows.exe
+      - name: Rename and compress executable
+        run: |
+          Rename-Item -Path dist\main.exe -NewName textStudy-windows.exe
+          Compress-Archive -Path dist\textStudy-windows.exe -DestinationPath dist\textStudy-windows.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: textStudy-windows
-          path: dist/textStudy-windows.exe
+          path: dist/textStudy-windows.zip
 
   build-macos:
     name: Build on macOS
@@ -108,17 +106,16 @@ jobs:
       - name: Build executable
         run: pyinstaller --onefile --noconfirm textStudy/main.py
 
-      - name: Check dist folder
-        run: ls -lah dist
-
-      - name: Rename executable
-        run: mv dist/main dist/textStudy-macos
+      - name: Rename and compress executable
+        run: |
+          mv dist/main dist/textStudy-macos
+          zip dist/textStudy-macos.zip dist/textStudy-macos
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: textStudy-macos
-          path: dist/textStudy-macos
+          path: dist/textStudy-macos.zip
 
   release:
     name: Create GitHub Release
@@ -147,8 +144,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            release/textStudy-linux
-            release/textStudy-windows.exe
-            release/textStudy-macos
+            release/textStudy-linux.zip
+            release/textStudy-windows.zip
+            release/textStudy-macos.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
