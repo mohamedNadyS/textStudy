@@ -47,7 +47,7 @@ cd textStudy
 pip install sentencepiece --prefer-binary
 pip install . --break-system-packages
 ```
-#### *that requires >=3.8,<3.12 python , pip, pyenv, and git*
+#### *that requires >=3.8,<3.12 python , pip, pyenv, ffmpeg, and git*
 #### if not avalible follow the next
 ----
 #### for Windows
@@ -65,7 +65,8 @@ pip install -e .
 ```
 or
 Go to https://www.python.org/downloads/windows/ and download 3.11.9 version
-and https://git-scm.com/download/win for git
+, https://ffmpeg.org/download.html for ffmpeg
+, and https://git-scm.com/download/win for git
 
 
 
