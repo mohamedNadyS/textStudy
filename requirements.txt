@@ -17,4 +17,3 @@ tokenizers
 weasyprint
 requests
 secretstorage
-tensorboard
