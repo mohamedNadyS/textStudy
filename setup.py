@@ -49,7 +49,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
-            "textStudy=textStudy.import_typer:main",
+            "textStudy=textStudy.main:main",
         ],
     },
     include_package_data=True,
