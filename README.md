@@ -3,7 +3,6 @@ A study tool for who don't love videos, by converting into educational materials
 
 ## Table of Content
 - ### **[Features](#features)**
-- ### **[Installation](#installation)**
 - ### **[Commands](#commands-1)**
 
 
@@ -32,93 +31,6 @@ A study tool for who don't love videos, by converting into educational materials
 - Fill-in-the-Blank Questions
 
 
-## Installation
-
-#### Clone the repository
-```bash
-git clone https://github.com/mohamedNadyS/textStudy.git
-```
-#### Open the Directory
-```bash
-cd textStudy
-```
-#### install the requirments
-```bash
-pip install sentencepiece --prefer-binary
-pip install . --break-system-packages
-```
-#### *that requires >=3.8,<3.12 python , pip, pyenv, ffmpeg, and git*
-#### if not avalible follow the next
-----
-#### for Windows
-python if want use a virual enviroment:
-    Go to  https://github.com/pyenv-win/pyenv-win#installation for python, pip, and pyenv
-        download between 3.8 and 3.11 version
-    then in powershell run
-```bash
-pyenv install 3.11.9
-pyenv local 3.11.9
-python -m venv venv
-venv\Scripts\activate
-pip install -U pip
-pip install -e .
-```
-or
-Go to https://www.python.org/downloads/windows/ and download 3.11.9 version
-, https://ffmpeg.org/download.html for ffmpeg
-, and https://git-scm.com/download/win for git
-
-
-
-#### for Mac
-
-run in terminal
-```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-```
-then
-```bash
-brew install pyenv git ffmpeg
-pyenv install 3.11.9
-pyenv local 3.11.9
-
-python -m venv venv
-source venv/bin/activate
-
-pip install -U pip
-pip install -e .
-```
-
-#### for linux
-
-```bash
-# Debian/Ubuntu
-sudo apt install python3.11 python3.11-venv python3.11-distutils git ffmpeg -y
-curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11
-
-# Fedora/RHEL/CentOS/Rocky
-sudo dnf install python3.11 python3.11-pip git ffmpeg -y
-
-# openSUSE
-sudo zypper install python3.11 python3.11-pip git ffmpeg
-
-
-# to creat enviroment if python 3.11 if this didn't succes in all this systems run the next
-cd /tmp
-curl -O https://www.python.org/ftp/python/3.11.9/Python-3.11.9.tgz
-tar -xf Python-3.11.9.tgz
-cd Python-3.11.9
-./configure --enable-optimizations
-make -j$(nproc)
-sudo make altinstall
-
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install -U pip
-pip install . --break-system-packages  # or just `pip install .` if not root
-
-```
 
 ## Commands
 
