@@ -46,6 +46,8 @@ setup(
         "weasyprint",
         "requests",
         "secretstorage",
+	"tensorboard",
+	"PyMiniRacer",
     ],
     entry_points={
         "console_scripts": [

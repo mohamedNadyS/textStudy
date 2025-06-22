@@ -17,3 +17,5 @@ tokenizers
 weasyprint
 requests
 secretstorage
+tensorboard
+PyMiniRacer
