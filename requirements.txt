@@ -19,3 +19,5 @@ requests
 secretstorage
 tensorboard
 py-mini-racer
+expecttest
+js

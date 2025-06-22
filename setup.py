@@ -48,6 +48,8 @@ setup(
         "secretstorage",
 	"tensorboard",
 	"py-mini-racer",
+	"expecttest",
+	"js",
     ],
     entry_points={
         "console_scripts": [
