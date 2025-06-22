@@ -2,76 +2,50 @@ name: Build and Upload Linux Executable
 
 on:
   push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:
+    tags:
+      - 'v*'  # Trigger on version tags like v1.0.0
+
+permissions:
+  contents: write
 
 jobs:
   build-linux:
+    name: Build on Linux (UPX + Transfer.sh Upload)
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-        
-    - name: Cache pip dependencies
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-
-          
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pyinstaller
-        pip install pyinstaller-hooks-contrib
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-        
-    - name: Install missing optional dependencies
-      run: |
-        # Install tensorboard to prevent ModuleNotFoundError
-        pip install tensorboard || echo "Tensorboard installation failed, continuing..."
-        
-    - name: Build executable with PyInstaller
-      run: |
-        # Option 1: Exclude problematic modules (recommended)
-        pyinstaller --onefile \
-          --exclude-module tensorboard \
-          --exclude-module urllib3.contrib.emscripten \
-          --exclude-module js \
-          --exclude-module pydevd \
-          --exclude-module tkinter \
-          --exclude-module matplotlib \
-          --name "your-app-name" \
-          your_main_script.py
-          
-        # Alternative Option 2: If you need tensorboard, use this instead:
-        # pyinstaller --onefile \
-        #   --hidden-import tensorboard \
-        #   --collect-all tensorboard \
-        #   --name "your-app-name" \
-        #   your_main_script.py
-          
-    - name: Verify build
-      run: |
-        ls -la dist/
-        file dist/your-app-name
-        
-    - name: Test executable
-      run: |
-        ./dist/your-app-name --help || echo "Help command not available"
-        
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: linux-executable
-        path: dist/your-app-name
-        retention-days: 30
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y ffmpeg upx curl
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build and compress executable
+        run: |
+          pyinstaller --onefile --noconfirm --strip textStudy/main.py
+          mv dist/main dist/textStudy-linux
+          upx --best --lzma dist/textStudy-linux
+          tar -czf textStudy-linux.tar.gz -C dist textStudy-linux
+
+      - name: Upload to transfer.sh
+        run: |
+          curl --upload-file textStudy-linux.tar.gz https://transfer.sh/textStudy-linux.tar.gz > download_link.txt
+          echo "✅ Public download link:"
+          cat download_link.txt
+
+      - name: Save download link as GitHub artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: textStudy-linux-download-link
+          path: download_link.txt
+
