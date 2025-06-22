@@ -18,4 +18,4 @@ weasyprint
 requests
 secretstorage
 tensorboard
-PyMiniRacer
+py-mini-racer

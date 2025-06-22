@@ -47,7 +47,7 @@ setup(
         "requests",
         "secretstorage",
 	"tensorboard",
-	"PyMiniRacer",
+	"py-mini-racer",
     ],
     entry_points={
         "console_scripts": [
