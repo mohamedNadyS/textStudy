@@ -1,33 +1,79 @@
-- name: Build and compress executable with auto-missing dependency install
-  run: |
-    MAX_ATTEMPTS=5
-    ATTEMPT=1
-    while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
-      echo "Build attempt $ATTEMPT"
-      set +e
-      pyinstaller --onefile --noconfirm --strip --exclude-module onnxscript --exclude-module pyodide textStudy/main.py 2> build.log
-      EXIT_CODE=$?
-      set -e
-      if [ $EXIT_CODE -eq 0 ]; then
-        echo "PyInstaller build succeeded!"
-        break
-      fi
-      # Detect missing module from the log
-      MISSING=$(grep -oP "No module named '\K[^']+" build.log | head -1)
-      if [ ! -z "$MISSING" ]; then
-        echo "Auto-installing missing module: $MISSING"
-        pip install "$MISSING"
-      else
-        echo "Build failed, but no missing module detected."
-        cat build.log
-        exit 1
-      fi
-      ATTEMPT=$((ATTEMPT+1))
-    done
-    if [ $EXIT_CODE -ne 0 ]; then
-      echo "PyInstaller build failed after $MAX_ATTEMPTS attempts."
-      exit 1
-    fi
-    mv dist/main dist/textStudy-linux
-    upx --best --lzma dist/textStudy-linux
-    tar -czf textStudy-linux.tar.gz -C dist textStudy-linux
+name: Build and Upload Linux Executable
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags like v1.0.0
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    name: Build on Linux (UPX + Transfer.sh Upload)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y ffmpeg upx curl
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build and compress executable with auto-missing dependency install
+        run: |
+          #!/bin/bash
+          set -e
+          MAX_ATTEMPTS=5
+          ATTEMPT=1
+          while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do
+            echo "Build attempt $ATTEMPT"
+            set +e
+            pyinstaller --onefile --noconfirm --strip --exclude-module onnxscript --exclude-module pyodide textStudy/main.py 2>build.log
+            EXIT_CODE=$?
+            set -e
+            if [ $EXIT_CODE -eq 0 ]; then
+              echo "PyInstaller build succeeded!"
+              break
+            fi
+            # Detect missing module from the log
+            MISSING=$(grep -oP "No module named '\K[^']+" build.log | head -1)
+            if [ -n "$MISSING" ]; then
+              echo "Auto-installing missing module: $MISSING"
+              pip install "$MISSING"
+            else
+              echo "Build failed, but no missing module detected."
+              cat build.log
+              exit 1
+            fi
+            ATTEMPT=$((ATTEMPT+1))
+          done
+          if [ $EXIT_CODE -ne 0 ]; then
+            echo "PyInstaller build failed after $MAX_ATTEMPTS attempts."
+            exit 1
+          fi
+          mv dist/main dist/textStudy-linux
+          upx --best --lzma dist/textStudy-linux
+          tar -czf textStudy-linux.tar.gz -C dist textStudy-linux
+
+      - name: Upload to transfer.sh
+        run: |
+          curl --upload-file textStudy-linux.tar.gz https://transfer.sh/textStudy-linux.tar.gz > download_link.txt
+          echo "✅ Public download link:"
+          cat download_link.txt
+
+      - name: Save download link as GitHub artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: textStudy-linux-download-link
+          path: download_link.txt
