@@ -1,66 +1,43 @@
-name: Build and Upload Linux Binary
+name: Build and Upload Linux Executable
 
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*'  # Trigger on version tags like v1.0.0
+
+permissions:
+  contents: write
 
 jobs:
   build-linux:
+    name: Build on Linux with UPX (GitHub Artifact Upload)
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-      - name: Setup Python 3.11
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg curl upx
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y ffmpeg upx curl
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pyinstaller
 
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install pyinstaller
-          pip install -r requirements.txt
+    - name: Build and compress executable
+      run: |
+        pyinstaller --onefile --noconfirm --strip textStudy/main.py
+        mv dist/main dist/textStudy-linux
+        upx --best --lzma dist/textStudy-linux
 
-      - name: Build executable with PyInstaller
-        run: |
-          pyinstaller textStudy/main.py \
-            --onefile \
-            --name textStudy \
-            --exclude-module torch._inductor \
-            --exclude-module torch._inductor.kernel \
-            --exclude-module torch._inductor.codegen.cpp_gemm_template \
-            --hidden-import torch._inductor.kernel \
-            --hidden-import torch._inductor.codegen.cpp_gemm_template \
-            --hidden-import torch._C \
-            --hidden-import numpy.core._multiarray_umath \
-            --hidden-import numpy.core._dtype_ctypes \
-            --collect-all torch \
-            --collect-all numpy
-
-      - name: Compress with UPX
-        run: |
-          upx --best dist/textStudy
-
-      - name: Create tarball
-        run: |
-          tar -czf textStudy-linux.tar.gz -C dist textStudy
-
-      - name: Upload to transfer.sh
-        run: |
-          link=$(curl -s --upload-file textStudy-linux.tar.gz https://transfer.sh/textStudy-linux.tar.gz)
-          echo "Upload Link: $link"
-          echo "$link" > link.txt
-
-      - name: Upload link as artifact
-        uses: actions/upload-artifact@v3
-        with:
-          name: textStudy_linux_link
-          path: link.txt
-
+    - name: Upload executable to GitHub (max 10 GB)
+      uses: actions/upload-artifact@v4
+      with:
+        name: textStudy-linux
+        path: dist/textStudy-linux
