@@ -30,7 +30,7 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
           pip install expecttest js
-          pip install onnxscript pyodide
+          pip install onnxscript
       - name: Build and compress executable
         run: |
           pyinstaller --onefile --noconfirm --strip textStudy/main.py
