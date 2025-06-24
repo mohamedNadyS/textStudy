@@ -551,7 +551,7 @@ def transcription(audio, language:str = "auto"):
         return
 
 
-def questions(numberQuestions, transcribtion, fileType, style: str = "mcq", tAPI: bool = False, API: str = None, apiModel: str = None, apiKey: str = None):
+def questionsss(numberQuestions, transcribtion, fileType, style: str = "mcq", tAPI: bool = False, API: str = None, apiModel: str = None, apiKey: str = None):
     """Enhanced questions function with better prompts and intelligent question distribution"""
     
     def questionsPrompt(chunk: str, style: str, Number: int, chunk_info: str):
@@ -1242,7 +1242,7 @@ def questions(number :int= typer.Option(...,"-n","--number", help="number genera
             transcription_result = {"text": f.read()}
 
     typer.echo("start preparing questions......")
-    questions(number, transcription_result['text'], usedType,style,onAPI,API,model,key)
+    questionsss(number, transcription_result['text'], usedType,style,onAPI,API,model,key)
 
 main = app
 if __name__ == '__main__' :
