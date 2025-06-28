@@ -50,6 +50,10 @@ setup(
 	"py-mini-racer",
 	"expecttest",
 	"js",
+    	"pylatexenc",
+    	"markdown",
+    	"pypandoc",
+    	"pandoc",
     ],
     entry_points={
         "console_scripts": [
