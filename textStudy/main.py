@@ -16,6 +16,9 @@ import weasyprint
 import requests
 import textwrap
 import json
+import markdown                      
+from pylatexenc.latexencode import unicode_to_latex 
+import pypandoc
 
 CONFIG_FILE = os.path.expanduser("~/.textstudy_config.json")
 
@@ -98,41 +101,54 @@ class progressHook:
             self.progress.update(self.task_id , completed = d.get('total_bytes' , 100) , total = d.get('total_bytes' , 100))
 
 def markDown(text, functionU):
+    """Simple Markdown writer: keeps original Markdown structure intact"""
     mdPath = os.path.splitext(path)[0] + functionU + ".md"
     with open(mdPath,"w", encoding="utf-8") as m:
-        m.write("#generated content\n\n")
-        for i, line in enumerate(text.split("\n"), 1):
-            if line.strip():
-                m.write(f"{i}. {line.strip()}\n\n")
+        m.write("# generated content\n\n")
+        m.write(text.strip())
 
-def pdf(text, functionU):
-    pdfPath = os.path.splitext(path)[0]+functionU+".pdf"
-    headd = "generated content"
-    html = f"""
-<html>
-<head>
-    <meta charset="utf-8">
-    <style>
-    body {{font-family: 'Georgia', serif; padding: 1em; border-radius: 5px; overflow: auto; }}
-    h1 {{ text-align: center; color: #003366;}}
-    h2 {{ color: #005588; margin-top: 1.5em; }}
-    pre {{ background: #f4f4f4; padding: 1em; border-radius: 5px; overflow-x: auto; }}
-    code {{ background: #f0f0f0; padding: 1em; border-radius: 5px; overflow-x: auto; }}
-    </style>
-</head>
-<h1>{headd}</h1>
-<pre>{text.strip()}</pre>
-</html>
+
+# === UPDATED PDF WRITER ===
+CSS_STYLE = """
+body    { font-family: 'Georgia', serif; padding: 1.5em; line-height: 1.45; }
+h1      { text-align: center; color: #003366; margin-top: 0; }
+h2      { color: #005588;   margin: 1.2em 0 0.6em; }
+pre,code{ background:#f4f4f4; padding:0.8em; border-radius:6px; overflow-x:auto; }
 """
-    weasyprint.HTML(string=html).write_pdf(pdfPath)
-    pass
+
+def pdf(markdown_text: str, functionU: str = "_paraphrased"):
+    """Convert *Markdown* (or plain text) → nicely‑formatted PDF using WeasyPrint."""
+    pdfPath = os.path.splitext(path)[0] + functionU + ".pdf"
+
+    # 1️⃣  Markdown → HTML
+    html_body = markdown.markdown(
+        markdown_text,
+        extensions=["extra", "fenced_code", "tables", "toc"],
+    )
+
+    # 2️⃣  Wrap in HTML skeleton with inline CSS
+    html_doc = f"""<!doctype html>
+<html>
+  <head>
+    <meta charset='utf-8'>
+    <style>{CSS_STYLE}</style>
+  </head>
+  <body>
+    <h1>generated content</h1>
+    {html_body}
+  </body>
+</html>"""
+
+    # 3️⃣  Render to PDF
+    weasyprint.HTML(string=html_doc, base_url=".").write_pdf(pdfPath)
+    return pdfPath
 
 
-def LaTeX(text, functionU):
-    latexPath = os.path.splitext(path)[0]+ functionU +".tex"
-    with open(latexPath,"w", encoding="utf-8") as l:
-        l.write(r"""\documentclass{article}
-\usepackage[utf-8]{inputenc}
+# === UPDATED LaTeX WRITER ===
+
+LATEX_TEMPLATE_HEADER = r"""
+\documentclass{article}
+\usepackage[utf8]{inputenc}
 \usepackage{enumitem}
 \usepackage{amsmath}
 \usepackage{amssymb}
@@ -145,18 +161,59 @@ def LaTeX(text, functionU):
 \date{\today}
 \begin{document}
 \maketitle
-""")
-        safeText = (
-            text.replace("&",r"\&")
-                .replace("%",r"\%")
-                .replace("#",r"\#")
-                .replace("_",r"\_")
-                .replace("~",r"\textasciitilde{}")
-                .replace("^",r"\textasciicircum{}")
-                .replace("\\",r"\textbackslash{}")
-        )
-        l.write(safeText.strip())
-        l.write(r"\end{document}")
+"""
+LATEX_TEMPLATE_FOOTER = r"""
+\end{document}
+"""
+
+_LATEX_REPLACEMENTS = {
+    "&": r"\&",
+    "%": r"\%",
+    "#": r"\#",
+    "_": r"\_",
+    "~": r"\textasciitilde{}",
+    "^": r"\textasciicircum{}",
+    "\\": r"\textbackslash{}",
+    "$": r"\$",
+    "{": r"\{",
+    "}": r"\}",
+}
+
+
+def LaTeX(text: str, src_path: str, functionU: str = "_paraphrased") -> str:
+    out_path = str(Path(src_path).with_suffix("")) + f"{functionU}.tex"
+
+    # Convert Markdown to proper LaTeX using Pandoc
+    latex_body = pypandoc.convert_text(text, to='latex', format='md')
+
+    latex_doc = rf"""
+\documentclass{{article}}
+\usepackage[utf8]{{inputenc}}
+\usepackage{{enumitem}}
+\usepackage{{amsmath}}
+\usepackage{{amssymb}}
+\usepackage{{hyperref}}
+\usepackage{{listings}}
+\usepackage{{xcolor}}
+\usepackage{{geometry}}
+\geometry{{margin=1in}}
+
+\title{{Generated Content}}
+\date{{\today}}
+
+\begin{{document}}
+\maketitle
+
+{latex_body}
+
+\end{{document}}
+"""
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(latex_doc)
+
+    return out_path
+
 
 def downloadVideo(Vlink):
     global path, Vdir, Vname
@@ -336,9 +393,9 @@ def paraphrase(transcribtion:str, fileType, tAPI: bool= False, API:str = None, a
     elif fileType == "latex":
         fftype = """
 - Format output in **LaTeX** with proper document structure
-- Use \\section*{name} for main sections and \\subsection*{name} for subsections
-- Use \\begin{enumerate} for numbered lists and \\begin{itemize} for bullet points
-- Include \\begin{verbatim} for code blocks
+- Use \\section*{{name}} for main sections and \\subsection*{{name}} for subsections
+- Use \\begin{{enumerate}} for numbered lists and \\begin{{itemize}} for bullet points
+- Include \\begin{{verbatim}} for code blocks
 - Use proper LaTeX formatting for mathematical expressions"""
 
     maxTokens = 2048
@@ -680,17 +737,18 @@ Generate {Number} high-quality {style} questions that thoroughly test understand
 - Include answer key at the end
 - Use proper spacing and formatting"""
     elif fileType == "latex":
+
         explainfileType = r"""
 - Format output in **LaTeX**
-- Use \section*{Questions} for headers
-- Use \begin{enumerate} for numbered questions
+- Use \section*{{Questions}} for headers
+- Use \begin{{enumerate}} for numbered questions
 - For multiple choice, use:
-  \begin{itemize}
+  \begin{{itemize}}
   \item[A)] Option A
   \item[B)] Option B
   \item[C)] Option C
   \item[D)] Option D
-  \end{itemize}
+  \end{{itemize}}
 - Include answer key at the end"""
     else:
         typer.echo("Unavailable file type. Choose from: markdown, pdf, latex", fg="red")
