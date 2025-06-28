@@ -21,3 +21,6 @@ tensorboard
 py-mini-racer
 expecttest
 js
+markdown
+pypandoc
+pandoc
