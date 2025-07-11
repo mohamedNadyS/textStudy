@@ -24,3 +24,5 @@ js
 markdown
 pypandoc
 pandoc
+edge-tts
+asyncio

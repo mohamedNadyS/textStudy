@@ -8,7 +8,7 @@ from pathlib import Path
 import yt_dlp
 from datetime import datetime, timedelta
 import uuid
-from rich.progress import track
+from rich.progress import track, Progress
 import semantic_text_splitter
 from tokenizers import Tokenizer
 from transformers import pipeline
@@ -19,6 +19,8 @@ import json
 import markdown                      
 from pylatexenc.latexencode import unicode_to_latex 
 import pypandoc
+import edge_tts
+import asyncio
 
 CONFIG_FILE = os.path.expanduser("~/.textstudy_config.json")
 
@@ -181,6 +183,7 @@ _LATEX_REPLACEMENTS = {
 
 
 def LaTeX(text: str, src_path: str, functionU: str = "_paraphrased") -> str:
+    """Convert *Markdown* (or plain text) → LaTeX document with proper formatting."""
     out_path = str(Path(src_path).with_suffix("")) + f"{functionU}.tex"
 
     # Convert Markdown to proper LaTeX using Pandoc
@@ -216,6 +219,7 @@ def LaTeX(text: str, src_path: str, functionU: str = "_paraphrased") -> str:
 
 
 def downloadVideo(Vlink):
+    """Download video from a URL using yt-dlp and save it to the videos directory. """
     global path, Vdir, Vname
     dir = Path.cwd()
     Vdir = dir / "videos"
@@ -254,7 +258,7 @@ def downloadVideo(Vlink):
 
 
 def video2audio(Vpath, Vdir):
-
+    """Convert video to audio using FFmpeg and save it as a WAV file."""
     global audioready
     
     if not ffmpeg_executable:
@@ -285,6 +289,7 @@ def video2audio(Vpath, Vdir):
 
 
 def audio2text(audioPath, language: str = "auto"):
+    """Transcribe audio to text using openAI-Whisper model."""
     global textready, transcribtion
     model = whisper.load_model('base')
     if language == "auto":
@@ -373,7 +378,14 @@ def summary(transcribtion: str, ratio: int):
     if summaries:
         FFsummary = "\n\n".join(summaries)
         typer.echo("Your summary:\n" + "="*50 + "\n" + FFsummary + "\n" + "="*50)
-        return FFsummary
+        timee = studyTime(FFsummary)
+        typer.echo(f"Estimated study time: {timee} minutes")
+        if not os.path.exists("summaries"):
+            os.makedirs("summaries")
+        summary_path = os.path.join("summaries", f"summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+        with open(summary_path, "w", encoding="utf-8") as f:
+            f.write(FFsummary.strip())
+        return FFsummary, "Summary saved to: " + summary_path
     else:
         typer.echo("No summary could be generated.")
         return ""
@@ -541,9 +553,26 @@ Create comprehensive educational content that covers ALL the material from the t
         markDown(Fparaphresed, "_paraphrased")
     elif fileType == "latex":
         LaTeX(Fparaphresed, "_paraphrased")
-    
+    timee = studyTime(Fparaphresed)
+    typer.echo(f"Estimated study time: {timee} minutes")
     return Fparaphresed
 
+async def generate_audio(text, output="summary.mp3", voice="en-US-AriaNeural", rate="+0%"):
+    communicate = edge_tts.Communicate(text, voice=voice, rate=rate)
+    await communicate.save(output)
+    print(f"Audio saved to {output}")
+def tts(text: str, voice="en-US-AriaNeural", output="summary.mp3",  rate="+0%"):
+    """text to speech conversion using edge_TTS"""
+    try:
+        asyncio.run(generate_audio(text, output, voice, rate))
+    except Exception as e:
+        print(f"[!] Error using edge-tts: {e}")
+        print("[💡] Try a different voice or check your connection.")
+
+def studyTime(text):
+    words = len(text.split())
+    minutes = round(words/ 200)
+    return max(1,minutes)
 
 def transcription(audio, language:str = "auto"):
     """Generate subtitles and embed them in video"""
@@ -1077,7 +1106,7 @@ Zulu	zu
     typer.echo("✅ Video ready with subtitles!")
 
 @app.command()
-def summarize(ratio : int = typer.Option(6, "--ratio", "-r", help="How much the summary smaller than original text"),lang : str =typer.Option("auto" , "--lang","-l",help ="""language is auto the orginal for translate use ISO 639-1 language code
+def summarize(ratio : int = typer.Option(6, "--ratio", "-r", help="How much the summary smaller than original text"),Audio : bool=typer.Option(False,"convert the summary into audio"),gender:str =typer.Option("female",help="voice gender male or female default is female"), lang : str =typer.Option("auto" , "--lang","-l",help ="""language is auto the orginal for translate use ISO 639-1 language code
 Language	Code
 Abkhazian	ab
 Afar	aa
@@ -1241,6 +1270,14 @@ Zulu	zu
 
     typer.echo("start summarizing......")
     summary(transcription_result['text'] , ratio)
+
+    typer.echo("Summary completed!")
+    if Audio:
+        typer.echo("Converting summary to audio...")
+        summary_text = transcription_result['text']
+        output_audio = os.path.join(Vdir, "summary.mp3")
+        tts(summary_text, voice=f"en-US-Aria{gender.capitalize()}Neural", output=output_audio, rate="+0%")
+        typer.echo(f"Audio summary saved as: {output_audio}")
 
 @app.command()
 def explain(fileType: str = typer.Option(...,"-t","--type",help ="Output file markdown, LaTex, or pdf as you want, and will be saved in same your video directory"),onAPI:bool = typer.Option(False,"-o","--onAPI" ,help="Are you want work with API instead of locally?"),API:str=typer.Option(None,"-a","--api"),model:str=typer.Option(None,"-m","--model"), key:str=typer.Option(None,"-k","--key")):

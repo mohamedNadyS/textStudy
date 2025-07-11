@@ -9,7 +9,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="textStudy",
-    version="1.0.0",
+    version="2.2.6",
     author="Mohamed Nady",
     author_email="mohamed0011199@gmail.com",
     description="Turn YouTube videos or local videos into enhanced study guides for loves reading with text, images, summaries, and questions.",
@@ -46,14 +46,16 @@ setup(
         "weasyprint",
         "requests",
         "secretstorage",
-	"tensorboard",
-	"py-mini-racer",
-	"expecttest",
-	"js",
+	    "tensorboard",
+	    "py-mini-racer",
+	    "expecttest",
+	    "js",
     	"pylatexenc",
     	"markdown",
     	"pypandoc",
     	"pandoc",
+        "edge-tts",
+        "asyncio",
     ],
     entry_points={
         "console_scripts": [
