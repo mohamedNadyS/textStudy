@@ -21,6 +21,7 @@ from pylatexenc.latexencode import unicode_to_latex
 import pypandoc
 import edge_tts
 import asyncio
+import re
 
 CONFIG_FILE = os.path.expanduser("~/.textstudy_config.json")
 
@@ -104,10 +105,12 @@ class progressHook:
 
 def markDown(text, functionU):
     """Simple Markdown writer: keeps original Markdown structure intact"""
+    global mdPath
     mdPath = os.path.splitext(path)[0] + functionU + ".md"
     with open(mdPath,"w", encoding="utf-8") as m:
         m.write("# generated content\n\n")
         m.write(text.strip())
+
 
 
 # === UPDATED PDF WRITER ===
@@ -217,6 +220,44 @@ def LaTeX(text: str, src_path: str, functionU: str = "_paraphrased") -> str:
 
     return out_path
 
+def md_to_quizlet_tsv(md_file=mdPath, functionU="_quizlet"):
+    tsvPath = os.path.splitext(path)[0] + functionU + ".tsv"
+    with open(md_file, encoding="utf-8") as f:
+        md_text = f.read()
+
+    blocks = re.split(r"\*\*Question.*?\*\*", md_text)
+    lines = []
+
+    for block in blocks:
+        q_match = re.search(r"(\d+\.\s*)?(.*?)\n\nA\)", block, re.DOTALL)
+        if not q_match:
+            continue
+
+        question = q_match.group(2).strip()
+
+        choices_block = re.findall(r"[A-D]\)\s+.*", block)
+        choices = "\n".join(choices_block)
+
+        answer_match = re.search(r"\*\*Correct Answer: ([A-D])\*\*", block)
+        explanation_match = re.search(r"\*\*Explanation:\*\*\n\n(.+?)(\n\n|\Z)", block, re.DOTALL)
+
+        if not answer_match:
+            continue
+
+        answer_letter = answer_match.group(1)
+        explanation = explanation_match.group(1).strip() if explanation_match else ""
+
+        full_question = f"{question}\n{choices}"
+        full_answer = f"{answer_letter} - {explanation}"
+        lines.append((full_question, full_answer))
+
+    # Write to TSV
+    with open(tsvPath, "w", encoding="utf-8") as out:
+        out.write("Question\tAnswer\n")
+        for q, a in lines:
+            out.write(f"{q}\t{a}\n")
+
+    print(f"[✅] Converted to Quizlet format: {tsvPath}")
 
 def downloadVideo(Vlink):
     """Download video from a URL using yt-dlp and save it to the videos directory. """
@@ -441,6 +482,7 @@ CONTENT STRUCTURE GUIDELINES:
 - Highlight important terms and definitions
 - Include examples where appropriate
 - End with a summary or conclusion
+- Don't right any additional thing or notes
 
 FORMAT REQUIREMENTS:
 {fftype}
@@ -693,6 +735,7 @@ QUALITY REQUIREMENTS:
 5. Make questions engaging and educational
 6. Avoid trivial or overly simple questions
 7. Ensure questions are appropriate for the content level
+8. don't write any additional thing or notes from you, just the questions 
 
 CONTENT ANALYSIS:
 - Identify the main topics and key concepts
@@ -745,7 +788,7 @@ Generate {Number} high-quality {style} questions that thoroughly test understand
         min_idx = questions_per_chunk.index(min(questions_per_chunk))
         questions_per_chunk[min_idx] += 1
     
-    if fileType == "markdown":
+    if fileType == "markdown" or fileType == "tsv":
         explainfileType = """
 - Format questions in **Markdown**
 - Use ## for section headers
@@ -888,6 +931,9 @@ Generate {Number} high-quality {style} questions that thoroughly test understand
         pdf(FfQuestions, "_questions")
     elif fileType == "markdown":
         markDown(FfQuestions, "_questions")
+    elif fileType == "tsv":
+        markDown(FfQuestions, "_questions")
+        md_to_quizlet_tsv()
     
     return FfQuestions
 
@@ -1309,7 +1355,7 @@ def explain(fileType: str = typer.Option(...,"-t","--type",help ="Output file ma
     paraphrase(transcription_result['text'], usedType,onAPI,API,model,key)
     
 @app.command()
-def questions(number :int= typer.Option(...,"-n","--number", help="number generated questions on the video"), style:str = typer.Option(...,"-s","--style",help = "style of questions from next: multiple choice, true/false, short answer, essay, fill in the blank"), file_type: str = typer.Option(...,"-t","--type",help ="Output file markdown, LaTex, or pdf as you want, and will be saved in same your video directory"),onAPI:bool = typer.Option(False,"-o","--tAPI" ,help="Are you want work with API instead of locally?"),API:str=typer.Option(None,"-a","--api"),model:str=typer.Option(None,"-m","--model"), key:str=typer.Option(None,"-k","--key")):
+def questions(number :int= typer.Option(...,"-n","--number", help="number generated questions on the video"), style:str = typer.Option(...,"-s","--style",help = "style of questions from next: multiple choice, true/false, short answer, essay, fill in the blank"), file_type: str = typer.Option(...,"-t","--type",help ="Output file markdown, LaTex, pdf, or tsv (to be used in quizlet as flashcards) as you want, and will be saved in same your video directory"),onAPI:bool = typer.Option(False,"-o","--tAPI" ,help="Are you want work with API instead of locally?"),API:str=typer.Option(None,"-a","--api"),model:str=typer.Option(None,"-m","--model"), key:str=typer.Option(None,"-k","--key")):
 
     path, vdir, vname = get_video_info()
 
