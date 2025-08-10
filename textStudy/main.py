@@ -84,6 +84,7 @@ Vdir = ""
 Vname = ""
 Apath = ""
 transcribtion = ""
+mdPath = ""
 
 class progressHook:
     def __init__(self , progress , task_id):
@@ -105,15 +106,15 @@ class progressHook:
 
 def markDown(text, functionU):
     """Simple Markdown writer: keeps original Markdown structure intact"""
-    global mdPath
+    global mdPath, path
     mdPath = os.path.splitext(path)[0] + functionU + ".md"
     with open(mdPath,"w", encoding="utf-8") as m:
         m.write("# generated content\n\n")
         m.write(text.strip())
+    return mdPath
 
 
 
-# === UPDATED PDF WRITER ===
 CSS_STYLE = """
 body    { font-family: 'Georgia', serif; padding: 1.5em; line-height: 1.45; }
 h1      { text-align: center; color: #003366; margin-top: 0; }
@@ -125,13 +126,11 @@ def pdf(markdown_text: str, functionU: str = "_paraphrased"):
     """Convert *Markdown* (or plain text) → nicely‑formatted PDF using WeasyPrint."""
     pdfPath = os.path.splitext(path)[0] + functionU + ".pdf"
 
-    # 1️⃣  Markdown → HTML
     html_body = markdown.markdown(
         markdown_text,
         extensions=["extra", "fenced_code", "tables", "toc"],
     )
 
-    # 2️⃣  Wrap in HTML skeleton with inline CSS
     html_doc = f"""<!doctype html>
 <html>
   <head>
@@ -144,12 +143,10 @@ def pdf(markdown_text: str, functionU: str = "_paraphrased"):
   </body>
 </html>"""
 
-    # 3️⃣  Render to PDF
     weasyprint.HTML(string=html_doc, base_url=".").write_pdf(pdfPath)
     return pdfPath
 
 
-# === UPDATED LaTeX WRITER ===
 
 LATEX_TEMPLATE_HEADER = r"""
 \documentclass{article}
@@ -189,7 +186,6 @@ def LaTeX(text: str, src_path: str, functionU: str = "_paraphrased") -> str:
     """Convert *Markdown* (or plain text) → LaTeX document with proper formatting."""
     out_path = str(Path(src_path).with_suffix("")) + f"{functionU}.tex"
 
-    # Convert Markdown to proper LaTeX using Pandoc
     latex_body = pypandoc.convert_text(text, to='latex', format='md')
 
     latex_doc = rf"""
@@ -220,8 +216,22 @@ def LaTeX(text: str, src_path: str, functionU: str = "_paraphrased") -> str:
 
     return out_path
 
-def md_to_quizlet_tsv(md_file=mdPath, functionU="_quizlet"):
+def md_to_quizlet_tsv(md_file=None, functionU="_quizlet"):
+    """Convert markdown questions to Quizlet TSV format"""
+    global path, mdPath
+    
+    if md_file is None:
+        if mdPath and os.path.exists(mdPath):
+            md_file = mdPath
+        else:
+            md_file = os.path.splitext(path)[0] + "_questions.md"
+    
+    if not os.path.exists(md_file):
+        print(f"[❌] Markdown file not found: {md_file}")
+        return
+    
     tsvPath = os.path.splitext(path)[0] + functionU + ".tsv"
+    
     with open(md_file, encoding="utf-8") as f:
         md_text = f.read()
 
@@ -251,7 +261,6 @@ def md_to_quizlet_tsv(md_file=mdPath, functionU="_quizlet"):
         full_answer = f"{answer_letter} - {explanation}"
         lines.append((full_question, full_answer))
 
-    # Write to TSV
     with open(tsvPath, "w", encoding="utf-8") as out:
         out.write("Question\tAnswer\n")
         for q, a in lines:
@@ -594,7 +603,7 @@ Create comprehensive educational content that covers ALL the material from the t
     elif fileType == "markdown":
         markDown(Fparaphresed, "_paraphrased")
     elif fileType == "latex":
-        LaTeX(Fparaphresed, "_paraphrased")
+        LaTeX(Fparaphresed, path, "_paraphrased")  # Fixed: added path parameter
     timee = studyTime(Fparaphresed)
     typer.echo(f"Estimated study time: {timee} minutes")
     return Fparaphresed
@@ -926,14 +935,14 @@ Generate {Number} high-quality {style} questions that thoroughly test understand
     FfQuestions = "\n\n" + "="*50 + "\n\n".join(connections) + "\n\n" + "="*50
     
     if fileType == "latex":
-        LaTeX(FfQuestions, "_questions")
+        LaTeX(FfQuestions, path, "_questions")  # Fixed: added path parameter
     elif fileType == "pdf":
         pdf(FfQuestions, "_questions")
     elif fileType == "markdown":
-        markDown(FfQuestions, "_questions")
+        md_path = markDown(FfQuestions, "_questions")  # Get the returned path
     elif fileType == "tsv":
-        markDown(FfQuestions, "_questions")
-        md_to_quizlet_tsv()
+        md_path = markDown(FfQuestions, "_questions")  # Get the returned path
+        md_to_quizlet_tsv(md_path)  # Pass the path explicitly
     
     return FfQuestions
 
@@ -941,7 +950,7 @@ app = typer.Typer()
 
 @app.command()
 def video(vpath: str = typer.Argument(...,help="Video file path or URL"), url : bool = typer.Option(False, "--url", "-u",help="Is this a URL?")):
-    global audioready, textready
+    global audioready, textready, path, Vdir, Vname  # Add global declarations
     audioready = False
     textready = False
     if url :
@@ -950,7 +959,7 @@ def video(vpath: str = typer.Argument(...,help="Video file path or URL"), url : 
         if result[0] is None:
             typer.echo("Failed to download video")
             return 
-        Vdir, path, Vname = result
+        Vdir, Vname, path = result  # Fixed order to match downloadVideo return
         set_video_info(path, Vdir, Vname)
 
     else :
