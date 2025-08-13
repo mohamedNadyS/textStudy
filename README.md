@@ -53,7 +53,7 @@ pip install -U pip
 pip install . --break-system-packages  # or just `pip install .` if not root
 
 ```
-## 📋 Features
+## Features
 
 ### Core Functions
 1. **Video Processing**: Download and process videos from URLs or local files
